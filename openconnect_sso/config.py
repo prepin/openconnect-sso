@@ -9,6 +9,7 @@ import pyotp
 import structlog
 import toml
 import xdg.BaseDirectory
+import binascii
 
 logger = structlog.get_logger()
 
@@ -127,7 +128,7 @@ class Credentials(ConfigNode):
         try:
             totpsecret = keyring.get_password(APP_NAME, "totp/" + self.username)
             return pyotp.TOTP(totpsecret).now() if totpsecret else None
-        except keyring.errors.KeyringError:
+        except (keyring.errors.KeyringError, binascii.Error):
             logger.info("Cannot retrieve saved totp info from keyring.")
             return ""
 
