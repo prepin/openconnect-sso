@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visibility Test - Simulating mvideo.ru SSO</title>
+    <style>
+        .hidden { display: none; }
+        .step { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .active { background: #e0f0e0; }
+    </style>
+</head>
+<body>
+    <h1>Visibility Test Page (Simulating mvideo.ru SSO)</h1>
+    
+    <div class="step active" id="step1">
+        <h2>Step 1 - Username (Active)</h2>
+        <input type="text" name="Login" placeholder="Username" id="login1" value="">
+        <button>Next</button>
+    </div>
+    
+    <div class="step hidden" id="step2">
+        <h2>Step 2 - Password (Hidden)</h2>
+        <input type="password" name="WindowsPassword" placeholder="Password" id="password2" value="">
+        <button>Next</button>
+    </div>
+    
+    <div class="step" id="step3" style="display: none;">
+        <h2>Step 3 - TOTP (Style hidden)</h2>
+        <input type="text" name="GoogleOtp" placeholder="TOTP" id="otp3" value="">
+        <button>Next</button>
+    </div>
+    
+    <button onclick="toggleSteps()">Toggle Steps</button>
+    
+    <script>
+        // Use the exact same visibility check as in webengine_process.py
+        function isVisible(el) {
+            if (!el) return false;
+            var style = window.getComputedStyle(el);
+            console.log('[VisibilityTest] Element:', el.name || el.id, 'display:', style.display, 'visibility:', style.visibility, 'opacity:', style.opacity);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+                return false;
+            }
+            var parent = el.parentElement;
+            while (parent && parent !== document.body) {
+                var parentStyle = window.getComputedStyle(parent);
+                console.log('[VisibilityTest]   Parent:', parent.id || parent.className, 'display:', parentStyle.display, 'visibility:', parentStyle.visibility);
+                if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {
+                    return false;
+                }
+                parent = parent.parentElement;
+            }
+            return true;
+        }
+        
+        function checkVisibility() {
+            // Use exact same selectors as in config.toml
+            var selectors = [
+                'input[name=Login]',
+                'input[name=WindowsPassword]', 
+                'input[name=GoogleOtp]'
+            ];
+            
+            console.log('[VisibilityTest] ========== CHECKING VISIBILITY ==========');
+            selectors.forEach(function(sel) {
+                var elem = document.querySelector(sel);
+                var visible = isVisible(elem);
+                console.log('[VisibilityTest] RESULT - Selector:', sel, 'visible:', visible, 'elem exists:', !!elem);
+            });
+            console.log('[VisibilityTest] =======================================');
+        }
+        
+        function toggleSteps() {
+            var step1 = document.getElementById('step1');
+            var step2 = document.getElementById('step2');
+            var step3 = document.getElementById('step3');
+            
+            if (step1.classList.contains('active')) {
+                // Go to step 2
+                step1.classList.remove('active');
+                step1.classList.add('hidden');
+                step2.classList.remove('hidden');
+                step2.classList.add('active');
+            } else if (step2.classList.contains('active')) {
+                // Go to step 3
+                step2.classList.remove('active');
+                step2.classList.add('hidden');
+                step3.style.display = 'block';
+                step3.classList.add('active');
+            } else {
+                // Back to step 1
+                step3.classList.remove('active');
+                step3.style.display = 'none';
+                step1.classList.remove('hidden');
+                step1.classList.add('active');
+            }
+            
+            console.log('[VisibilityTest] Steps toggled');
+            setTimeout(checkVisibility, 100);
+        }
+        
+        // Check on load
+        window.addEventListener('load', function() {
+            console.log('[VisibilityTest] Page loaded');
+            setTimeout(checkVisibility, 500);
+        });
+    </script>
+</body>
+</html>

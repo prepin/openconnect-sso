@@ -32,9 +32,11 @@ def run(args):
     try:
         if os.name == "nt":
             asyncio.set_event_loop(asyncio.ProactorEventLoop())
-        auth_response, selected_profile = asyncio.get_event_loop().run_until_complete(
-            _run(args, cfg)
-        )
+            loop = asyncio.get_event_loop()
+        else:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        auth_response, selected_profile = loop.run_until_complete(_run(args, cfg))
     except KeyboardInterrupt:
         logger.warn("CTRL-C pressed, exiting")
         return 130
