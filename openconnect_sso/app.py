@@ -24,8 +24,67 @@ from requests.exceptions import HTTPError
 logger = structlog.get_logger()
 
 
+def should_prompt_sudo_setup(cfg):
+    """Check if we should prompt user to setup sudo."""
+    try:
+        from openconnect_sso.sudo_setup import check_sudoers_configured
+    except ImportError:
+        return False
+
+    # Don't prompt if already configured or dismissed
+    if cfg.sudo_configured or cfg.sudo_setup_dismissed:
+        return False
+
+    # Don't prompt on Windows
+    if os.name == "nt":
+        return False
+
+    # Check if already working
+    if check_sudoers_configured():
+        cfg.sudo_configured = True
+        config.save(cfg)
+        return False
+
+    return True
+
+
+def prompt_sudo_setup(cfg):
+    """Prompt user to setup passwordless sudo."""
+    from prompt_toolkit.shortcuts import button_dialog
+
+    result = button_dialog(
+        title="Setup Passwordless sudo",
+        text=(
+            "openconnect-sso requires sudo to run openconnect.\n\n"
+            "Would you like to configure passwordless sudo for openconnect?\n"
+            "This will only allow openconnect to run without password.\n\n"
+            "You can also run: openconnect-sso --setup-sso"
+        ),
+        buttons=[
+            ("Setup Now", True),
+            ("Never Ask Again", "dismissed"),
+            ("Skip", False),
+        ],
+    ).run()
+
+    if result is True:
+        # Run setup
+        from openconnect_sso.cli import setup_sudo_configuration
+
+        setup_sudo_configuration()
+    elif result == "dismissed":
+        # Mark as dismissed
+        cfg.sudo_setup_dismissed = True
+        config.save(cfg)
+    # If False (Skip), do nothing
+
+
 def run(args):
     cfg = config.load()
+
+    # Check if we should prompt for sudo setup (before VPN auth)
+    if should_prompt_sudo_setup(cfg):
+        prompt_sudo_setup(cfg)
 
     log_level = args.log_level if args.log_level is not None else cfg.log_level
     configure_logger(logging.getLogger(), log_level)
@@ -203,7 +262,7 @@ def run_openconnect(auth_info, host, proxy, version, args):
         )
         return 20
 
-    command_line = as_root + [
+    command_line = [
         "openconnect",
         "--useragent",
         f"AnyConnect Linux_64 {version}",
@@ -218,9 +277,43 @@ def run_openconnect(auth_info, host, proxy, version, args):
     if proxy:
         command_line.extend(["--proxy", proxy])
 
+    # Try to use sudo -n for passwordless execution
+    if as_root == ["sudo"]:
+        # First try with -n flag (passwordless)
+        passwordless_command = ["sudo", "-n"] + command_line
+        session_token = auth_info.session_token.encode("utf-8")
+        logger.debug(
+            "Starting OpenConnect (passwordless)", command_line=passwordless_command
+        )
+        result = subprocess.run(passwordless_command, input=session_token)
+
+        # If passwordless succeeded, return
+        if result.returncode == 0 or result.returncode != 1:
+            return result.returncode
+
+        # If -n flag not supported or password required, fall back to regular sudo
+        logger.debug("Passwordless sudo failed, trying regular sudo")
+    elif as_root == ["doas"]:
+        # doas also supports -n flag
+        passwordless_command = ["doas", "-n"] + command_line
+        session_token = auth_info.session_token.encode("utf-8")
+        logger.debug(
+            "Starting OpenConnect (passwordless doas)",
+            command_line=passwordless_command,
+        )
+        result = subprocess.run(passwordless_command, input=session_token)
+
+        # If passwordless succeeded, return
+        if result.returncode == 0 or result.returncode != 1:
+            return result.returncode
+
+        logger.debug("Passwordless doas failed, trying regular doas")
+
+    # Fall back to regular sudo/doas (will prompt for password)
+    full_command = as_root + command_line
     session_token = auth_info.session_token.encode("utf-8")
-    logger.debug("Starting OpenConnect", command_line=command_line)
-    return subprocess.run(command_line, input=session_token).returncode
+    logger.debug("Starting OpenConnect", command_line=full_command)
+    return subprocess.run(full_command, input=session_token).returncode
 
 
 def handle_disconnect(command):

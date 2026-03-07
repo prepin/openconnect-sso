@@ -134,6 +134,93 @@ selector = "input[type=tel]"
 fill = "totp"
 ```
 
+### Setting up Passwordless sudo
+
+openconnect-sso requires sudo privileges to run openconnect. You can configure
+passwordless sudo for openconnect to avoid entering your password on every connection.
+
+#### Automatic Setup (Recommended)
+
+Run the setup command:
+
+```shell
+openconnect-sso --setup-sudo
+```
+
+This will:
+- Detect your openconnect installation path
+- Create appropriate sudoers configuration
+- Only allow passwordless execution of openconnect (secure)
+
+You'll be prompted for your administrator password once during setup.
+
+#### Manual Setup
+
+**Linux:**
+
+1. Find your openconnect path:
+   ```shell
+   which openconnect
+   ```
+
+2. Create sudoers file:
+   ```shell
+   sudo visudo -f /etc/sudoers.d/openconnect-sso
+   ```
+
+3. Add this line (replace `<username>` and `<path>`):
+   ```
+   <username> ALL=(ALL) NOPASSWD: /usr/bin/openconnect
+   ```
+
+4. Set correct permissions:
+   ```shell
+   sudo chmod 0440 /etc/sudoers.d/openconnect-sso
+   ```
+
+**macOS:**
+
+The process is similar to Linux. If your system supports `/etc/sudoers.d/`
+(macOS 10.13+), follow the Linux instructions. Otherwise:
+
+1. Edit sudoers:
+   ```shell
+   sudo visudo
+   ```
+
+2. Add at the end:
+   ```
+   <username> ALL=(ALL) NOPASSWD: /usr/local/bin/openconnect
+   ```
+
+#### Security Considerations
+
+- Only the specific openconnect binary can run without password
+- Regular sudo still requires password for other commands
+- You can remove the configuration anytime:
+  ```shell
+  openconnect-sso --remove-sudo-setup
+  ```
+
+#### Troubleshooting
+
+If you still see password prompts after setup:
+
+1. Verify the configuration:
+   ```shell
+   sudo -l
+   ```
+
+2. Check file permissions (must be 0440):
+   ```shell
+   ls -l /etc/sudoers.d/openconnect-sso
+   ```
+
+3. Test sudo access:
+   ```shell
+   sudo -n openconnect --version
+   ```
+
 ### Adding custom `openconnect` arguments
 
 Sometimes you need to add custom `openconnect` arguments. One situation can be if you get similar error messages:

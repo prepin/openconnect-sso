@@ -165,6 +165,8 @@ class Config(ConfigNode):
     )
     on_disconnect = attr.ib(converter=str, default="")
     log_level = attr.ib(converter=log_level_converter, default=logging.WARNING)
+    sudo_configured = attr.ib(converter=bool, default=False)
+    sudo_setup_dismissed = attr.ib(converter=bool, default=False)
 
 
 class DisplayMode(enum.Enum):

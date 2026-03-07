@@ -89,6 +89,18 @@ def create_argparser():
         "-V", "--version", action="version", version=f"%(prog)s {__version__}"
     )
 
+    setup_group = parser.add_argument_group("Setup Commands")
+    setup_group.add_argument(
+        "--setup-sudo",
+        action="store_true",
+        help="Configure passwordless sudo for openconnect",
+    )
+    setup_group.add_argument(
+        "--remove-sudo-setup",
+        action="store_true",
+        help="Remove passwordless sudo configuration",
+    )
+
     parser.add_argument(
         "--ac-version",
         help="AnyConnect Version used for authentication and for OpenConnect, defaults to %(default)s",
@@ -120,7 +132,8 @@ def create_argparser():
 
 class StoreOpenConnectArgs(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        if "--" in values:
+        if values and "--" in values:
+            values = list(values)
             values.remove("--")
         setattr(namespace, self.dest, values)
 
@@ -148,9 +161,90 @@ class LogLevel(enum.IntEnum):
         return cls.__members__.values()
 
 
+def setup_sudo_configuration():
+    """Interactive sudo setup."""
+    from openconnect_sso.sudo_setup import (
+        get_openconnect_path,
+        setup_sudoers,
+        check_sudoers_configured,
+    )
+
+    # Check if already configured
+    if check_sudoers_configured():
+        print("✓ Passwordless sudo already configured")
+        return 0
+
+    # Get openconnect path
+    try:
+        openconnect_path = get_openconnect_path()
+    except FileNotFoundError:
+        print("✗ openconnect not found in PATH")
+        print("  Please install openconnect first:")
+        print("    Linux:  sudo apt-get install openconnect")
+        print("    macOS:  brew install openconnect")
+        return 1
+
+    # Prompt user
+    print(f"This will configure passwordless sudo for: {openconnect_path}")
+    print("Administrator password required.")
+    print()
+
+    # Setup sudoers
+    try:
+        if setup_sudoers(openconnect_path):
+            print("✓ Configuration successful")
+            print()
+            print("You can now connect to VPN without entering your sudo password.")
+            print("To undo this change, run:")
+            print("  openconnect-sso --remove-sudo-setup")
+
+            # Update config
+            cfg = config.load()
+            cfg.sudo_configured = True
+            config.save(cfg)
+            return 0
+        else:
+            print("✗ Configuration failed")
+            return 1
+    except Exception as e:
+        print(f"✗ Configuration failed: {e}")
+        return 1
+
+
+def remove_sudo_configuration():
+    """Remove passwordless sudo configuration."""
+    from openconnect_sso.sudo_setup import remove_sudoers
+
+    print("Removing passwordless sudo configuration...")
+    print("Administrator password required.")
+    print()
+
+    try:
+        if remove_sudoers():
+            print("✓ Configuration removed successfully")
+
+            # Update config
+            cfg = config.load()
+            cfg.sudo_configured = False
+            config.save(cfg)
+            return 0
+        else:
+            print("✗ Failed to remove configuration")
+            return 1
+    except Exception as e:
+        print(f"✗ Failed to remove configuration: {e}")
+        return 1
+
+
 def main():
     parser = create_argparser()
     args = parser.parse_args()
+
+    # Handle setup commands
+    if args.setup_sudo:
+        return setup_sudo_configuration()
+    if args.remove_sudo_setup:
+        return remove_sudo_configuration()
 
     if (args.profile_path or args.use_profile_selector) and (
         args.server or args.usergroup
