@@ -201,7 +201,6 @@ class WebBrowser(QWebEngineView):
 // @include {url_pattern}
 // ==/UserScript==
 
-console.log('[AutoFill] Script injected for pattern:', {json.dumps(url_pattern)});
 if (typeof window.autoFillFilledFields === 'undefined') {{
     window.autoFillFilledFields = new Set();
     window.autoFillButtonClicked = false;
@@ -209,8 +208,7 @@ if (typeof window.autoFillFilledFields === 'undefined') {{
 }}
 
 function autoFill() {{
-    console.log('[AutoFill] autoFill() called for {url_pattern}, filled fields:', Array.from(window.autoFillFilledFields), 'URL:', window.location.href);
-    window.autoFillButtonClicked = false; // Reset flag at start of each cycle
+    window.autoFillButtonClicked = false;
     {get_selectors(rules, credentials)}
     
     // Use longer delay if we recently clicked a button (page transitioning)
@@ -279,72 +277,43 @@ def get_selectors(rules, credentials):
         selector = json.dumps(rule.selector)
         if rule.action == "stop":
             fill_statements.append(
-                f"""var elem = document.querySelector({selector}); if (elem) {{ console.log('[AutoFill] Stop rule matched:', {selector}); return; }}"""
+                f"""var elem = document.querySelector({selector}); if (elem) {{ return; }}"""
             )
         elif rule.fill:
             cred_value = getattr(credentials, rule.fill, None)
-            logger.info(
-                "Retrieved credential",
-                fill_type=rule.fill,
-                has_value=cred_value is not None,
-                value_length=len(cred_value) if cred_value else 0,
-            )
             value = json.dumps(cred_value)
             if cred_value:
                 fill_statements.append(
                     f"""(function() {{
     try {{
     var selectorKey = {selector};
-    if (window.autoFillFilledFields.has(selectorKey)) {{
-        console.log('[AutoFill] Skipping already filled field:', selectorKey);
-        return;
-    }}
+    if (window.autoFillFilledFields.has(selectorKey)) return;
     
     var elem = document.querySelector(selectorKey);
-    console.log('[AutoFill] Fill rule:', selectorKey, 'elem:', !!elem, 'empty:', elem && !elem.value, 'value_to_fill:', {value}, 'current_value:', elem && elem.value);
     
-    // Check if element is visible using computed styles
     function isVisible(el) {{
         if (!el) return false;
         var style = window.getComputedStyle(el);
-        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {{
-            return false;
-        }}
-        // Also check parent elements
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
         var parent = el.parentElement;
         while (parent && parent !== document.body) {{
             var parentStyle = window.getComputedStyle(parent);
-            if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') {{
-                return false;
-            }}
+            if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') return false;
             parent = parent.parentElement;
         }}
         return true;
     }}
     
-    var visible = isVisible(elem);
-    console.log('[AutoFill] Element visibility:', visible);
-    
-    // Fill if element exists, is empty, and is visible
-    if (elem && !elem.value && visible) {{
-        console.log('[AutoFill] Filling field');
+    if (elem && !elem.value && isVisible(elem)) {{
         elem.focus();
         var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
         nativeInputValueSetter.call(elem, {value});
         elem.dispatchEvent(new Event('input', {{bubbles: true}}));
         elem.dispatchEvent(new Event('change', {{bubbles: true}}));
         elem.dispatchEvent(new Event('blur', {{bubbles: true}}));
-        
-        if (elem.value) {{
-            console.log('[AutoFill] Successfully filled field, value:', elem.value);
-            window.autoFillFilledFields.add(selectorKey);
-        }} else {{
-            console.log('[AutoFill] Failed to fill field - value is empty after fill attempt');
-        }}
-    }} else {{
-        console.log('[AutoFill] Skipping fill - conditions not met (elem:', !!elem, ', empty:', elem && !elem.value, ', visible:', visible, ')');
+        if (elem.value) window.autoFillFilledFields.add(selectorKey);
     }}
-    }} catch(e) {{ console.error('[AutoFill] Error in fill rule:', {selector}, e); }}
+    }} catch(e) {{ console.error('[AutoFill] Error:', {selector}, e); }}
 }})();"""
                 )
             else:
@@ -357,22 +326,13 @@ def get_selectors(rules, credentials):
             click_statements.append(
                 f"""(function() {{ 
     try {{
-    if (window.autoFillButtonClicked) {{
-        console.log('[AutoFill] Skipping click - button already clicked this cycle');
-        return;
-    }}
+    if (window.autoFillButtonClicked) return;
     
-    console.log('[AutoFill] Click rule:', {selector});
-    
-    // Select TOTP radio button if on auth method selection screen
     var totpRadio = Array.from(document.querySelectorAll('input[type=radio]')).find(function(r) {{
         var label = r.closest('label') || r.parentElement;
         return label && (label.textContent.includes('TOTP') || label.textContent.includes('Software TOTP'));
     }});
-    if (totpRadio && !totpRadio.checked) {{
-        console.log('[AutoFill] Selecting TOTP radio button');
-        totpRadio.click();
-    }}
+    if (totpRadio && !totpRadio.checked) totpRadio.click();
     
     var hasFilledField = Array.from(document.querySelectorAll('input:not([type=radio])')).some(function(inp) {{ 
         return inp.value && inp.value.length > 0; 
@@ -380,23 +340,18 @@ def get_selectors(rules, credentials):
     var hasCheckedRadio = Array.from(document.querySelectorAll('input[type=radio]')).some(function(radio) {{ 
         return radio.checked; 
     }});
-    console.log('[AutoFill] Has filled field:', hasFilledField, 'has checked radio:', hasCheckedRadio);
-    if (!hasFilledField && !hasCheckedRadio) {{ console.log('[AutoFill] Skipping click - no filled field or checked radio'); return; }}
+    if (!hasFilledField && !hasCheckedRadio) return;
     
     var buttons = Array.from(document.querySelectorAll({selector})).filter(function(b) {{ 
         return !b.disabled && b.textContent.trim() !== 'Back' && b.textContent.trim() !== 'Назад' && (b.offsetWidth > 0 || b.offsetHeight > 0 || b.getClientRects().length > 0); 
     }}); 
     
-    console.log('[AutoFill] Buttons found:', buttons.length, 'first button text:', buttons.length > 0 ? buttons[0].textContent.trim() : '');
-    
     if (buttons.length > 0 && !buttons[0].disabled) {{ 
-        console.log('[AutoFill] Clicking button');
         window.autoFillButtonClicked = true;
         window.autoFillLastClickTime = Date.now();
         buttons[0].click();
-        console.log('[AutoFill] Button clicked');
     }} 
-    }} catch(e) {{ console.error('[AutoFill] Error in click rule:', {selector}, e); }}
+    }} catch(e) {{ console.error('[AutoFill] Error:', {selector}, e); }}
 }})();"""
             )
     result = "\n".join(fill_statements + click_statements)
