@@ -1,0 +1,3 @@
+#!/bin/bash
+export OPENSSL_CONF=~/.config/openconnect-sso/ssl.conf
+openconnect-sso "$@"
