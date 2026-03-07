@@ -1,4 +1,5 @@
 import enum
+import logging
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -12,6 +13,18 @@ import xdg.BaseDirectory
 import binascii
 
 logger = structlog.get_logger()
+
+
+def log_level_converter(value):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return getattr(logging, value.upper())
+        except AttributeError:
+            pass
+    return logging.WARNING
+
 
 APP_NAME = "openconnect-sso"
 
@@ -151,6 +164,7 @@ class Config(ConfigNode):
         },
     )
     on_disconnect = attr.ib(converter=str, default="")
+    log_level = attr.ib(converter=log_level_converter, default=logging.WARNING)
 
 
 class DisplayMode(enum.Enum):

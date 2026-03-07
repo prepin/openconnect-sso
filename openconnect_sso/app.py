@@ -25,9 +25,10 @@ logger = structlog.get_logger()
 
 
 def run(args):
-    configure_logger(logging.getLogger(), args.log_level)
-
     cfg = config.load()
+
+    log_level = args.log_level if args.log_level is not None else cfg.log_level
+    configure_logger(logging.getLogger(), log_level)
 
     try:
         if os.name == "nt":
