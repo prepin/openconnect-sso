@@ -5,6 +5,8 @@ import logging
 import os
 import signal
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import shlex
@@ -140,6 +142,7 @@ def run(args):
             args.proxy,
             args.ac_version,
             args.openconnect_args,
+            cfg.on_connect,
         )
     except KeyboardInterrupt:
         logger.warn("CTRL-C pressed, exiting")
@@ -245,7 +248,23 @@ def authenticate_to(host, proxy, credentials, display_mode, version):
     return Authenticator(host, proxy, credentials, version).authenticate(display_mode)
 
 
-def run_openconnect(auth_info, host, proxy, version, args):
+def create_vpnc_wrapper(on_connect_command):
+    import tempfile
+
+    wrapper_script = f"""#!/bin/sh
+/etc/vpnc/vpnc-script "$@"
+if [ "$reason" = "connect" ]; then
+    {on_connect_command} &
+fi
+"""
+    wrapper_file = tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False)
+    wrapper_file.write(wrapper_script)
+    wrapper_file.close()
+    os.chmod(wrapper_file.name, 0o755)
+    return wrapper_file.name
+
+
+def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
     as_root = next(([prog] for prog in ("doas", "sudo") if shutil.which(prog)), [])
     try:
         if not as_root:
@@ -274,46 +293,58 @@ def run_openconnect(auth_info, host, proxy, version, args):
         *args,
         host.vpn_url,
     ]
+
+    wrapper_script = None
+    if on_connect and sys.platform.startswith("linux"):
+        wrapper_script = create_vpnc_wrapper(on_connect)
+        command_line.extend(["--script", wrapper_script])
+        logger.info("Created vpnc wrapper for on_connect", script=wrapper_script)
+
     if proxy:
         command_line.extend(["--proxy", proxy])
 
-    # Try to use sudo -n for passwordless execution
-    if as_root == ["sudo"]:
-        # First try with -n flag (passwordless)
-        passwordless_command = ["sudo", "-n"] + command_line
+    try:
+        # Try to use sudo -n for passwordless execution
+        if as_root == ["sudo"]:
+            # First try with -n flag (passwordless)
+            passwordless_command = ["sudo", "-n"] + command_line
+            session_token = auth_info.session_token.encode("utf-8")
+            logger.debug(
+                "Starting OpenConnect (passwordless)", command_line=passwordless_command
+            )
+            result = subprocess.run(passwordless_command, input=session_token)
+
+            # If passwordless succeeded, return
+            if result.returncode == 0 or result.returncode != 1:
+                return result.returncode
+
+            # If -n flag not supported or password required, fall back to regular sudo
+            logger.debug("Passwordless sudo failed, trying regular sudo")
+        elif as_root == ["doas"]:
+            # doas also supports -n flag
+            passwordless_command = ["doas", "-n"] + command_line
+            session_token = auth_info.session_token.encode("utf-8")
+            logger.debug(
+                "Starting OpenConnect (passwordless doas)",
+                command_line=passwordless_command,
+            )
+            result = subprocess.run(passwordless_command, input=session_token)
+
+            # If passwordless succeeded, return
+            if result.returncode == 0 or result.returncode != 1:
+                return result.returncode
+
+            logger.debug("Passwordless doas failed, trying regular doas")
+
+        # Fall back to regular sudo/doas (will prompt for password)
+        full_command = as_root + command_line
         session_token = auth_info.session_token.encode("utf-8")
-        logger.debug(
-            "Starting OpenConnect (passwordless)", command_line=passwordless_command
-        )
-        result = subprocess.run(passwordless_command, input=session_token)
-
-        # If passwordless succeeded, return
-        if result.returncode == 0 or result.returncode != 1:
-            return result.returncode
-
-        # If -n flag not supported or password required, fall back to regular sudo
-        logger.debug("Passwordless sudo failed, trying regular sudo")
-    elif as_root == ["doas"]:
-        # doas also supports -n flag
-        passwordless_command = ["doas", "-n"] + command_line
-        session_token = auth_info.session_token.encode("utf-8")
-        logger.debug(
-            "Starting OpenConnect (passwordless doas)",
-            command_line=passwordless_command,
-        )
-        result = subprocess.run(passwordless_command, input=session_token)
-
-        # If passwordless succeeded, return
-        if result.returncode == 0 or result.returncode != 1:
-            return result.returncode
-
-        logger.debug("Passwordless doas failed, trying regular doas")
-
-    # Fall back to regular sudo/doas (will prompt for password)
-    full_command = as_root + command_line
-    session_token = auth_info.session_token.encode("utf-8")
-    logger.debug("Starting OpenConnect", command_line=full_command)
-    return subprocess.run(full_command, input=session_token).returncode
+        logger.debug("Starting OpenConnect", command_line=full_command)
+        return subprocess.run(full_command, input=session_token).returncode
+    finally:
+        if wrapper_script:
+            os.unlink(wrapper_script)
+            logger.debug("Cleaned up vpnc wrapper", script=wrapper_script)
 
 
 def handle_disconnect(command):
