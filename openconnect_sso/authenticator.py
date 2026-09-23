@@ -62,9 +62,9 @@ class Authenticator:
 
     def _start_authentication(self):
         request = _create_auth_init_request(self.host, self.host.vpn_url, self.version)
-        logger.debug("Sending auth init request", content=request)
+        logger.debug("Sending auth init request")
         response = self.session.post(self.host.vpn_url, request)
-        logger.debug("Auth init response received", content=response.content)
+        logger.debug("Auth init response received", status=response.status_code)
         return parse_response(response)
 
     async def _authenticate_in_browser(self, auth_request_response, display_mode):
@@ -76,9 +76,9 @@ class Authenticator:
         request = _create_auth_finish_request(
             self.host, auth_request_response, sso_token, self.version
         )
-        logger.debug("Sending auth finish request", content=request)
+        logger.debug("Sending auth finish request")
         response = self.session.post(self.host.vpn_url, request)
-        logger.debug("Auth finish response received", content=response.content)
+        logger.debug("Auth finish response received", status=response.status_code)
         return parse_response(response)
 
 
