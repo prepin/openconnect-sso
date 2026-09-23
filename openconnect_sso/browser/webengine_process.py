@@ -191,6 +191,19 @@ class WebBrowser(QWebEngineView):
 
         if credentials:
             logger.info("Initiating autologin", cred=credentials)
+            totp_selectors = [
+                rule.selector
+                for rules in self._auto_fill_rules.values()
+                for rule in rules
+                if rule.fill == "totp"
+            ]
+            if totp_selectors:
+                self._credentials = credentials
+                self._totp_check_script = get_totp_check_script(totp_selectors)
+                self._totp_timer = QTimer(self)
+                self._totp_timer.timeout.connect(self._check_totp_field)
+                self._totp_timer.start(250)
+
             for url_pattern, rules in self._auto_fill_rules.items():
                 script = QWebEngineScript()
                 script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
@@ -222,6 +235,13 @@ autoFill();
                 self.page().scripts().insert(script)
 
         self.load(QUrl(url))
+
+    def _check_totp_field(self):
+        self.page().runJavaScript(self._totp_check_script, self._fill_totp)
+
+    def _fill_totp(self, selector):
+        if selector:
+            fill_totp(self.page(), selector, self._credentials)
 
     def _on_cookie_added(self, cookie):
         logger.debug("Cookie set", name=to_str(cookie.name()))
@@ -272,6 +292,9 @@ def to_str(qval):
 def get_selectors(rules, credentials):
     fill_statements = []
     click_statements = []
+    totp_selectors = json.dumps(
+        [rule.selector for rule in rules if rule.fill == "totp"]
+    )
 
     for rule in rules:
         selector = json.dumps(rule.selector)
@@ -280,6 +303,8 @@ def get_selectors(rules, credentials):
                 f"""var elem = document.querySelector({selector}); if (elem) {{ return; }}"""
             )
         elif rule.fill:
+            if rule.fill == "totp":
+                continue
             cred_value = getattr(credentials, rule.fill, None)
             value = json.dumps(cred_value)
             if cred_value:
@@ -327,6 +352,12 @@ def get_selectors(rules, credentials):
                 f"""(function() {{ 
     try {{
     if (window.autoFillButtonClicked) return;
+
+    var pendingTotp = {totp_selectors}.some(function(totpSelector) {{
+        var totpInput = document.querySelector(totpSelector);
+        return totpInput && !totpInput.value && (totpInput.offsetWidth > 0 || totpInput.offsetHeight > 0 || totpInput.getClientRects().length > 0);
+    }});
+    if (pendingTotp) return;
     
     var totpRadio = Array.from(document.querySelectorAll('input[type=radio]')).find(function(r) {{
         var label = r.closest('label') || r.parentElement;
@@ -356,3 +387,33 @@ def get_selectors(rules, credentials):
             )
     result = "\n".join(fill_statements + click_statements)
     return result
+
+
+def get_totp_check_script(selectors):
+    return f"""(() => {{
+    return {json.dumps(selectors)}.find(function(selector) {{
+        var elem = document.querySelector(selector);
+        if (!elem || elem.value) return false;
+        var style = window.getComputedStyle(elem);
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && (elem.offsetWidth > 0 || elem.offsetHeight > 0 || elem.getClientRects().length > 0);
+    }}) || null;
+}})()"""
+
+
+def fill_totp(page, selector, credentials):
+    value = credentials.totp
+    if not value:
+        return
+
+    page.runJavaScript(
+        f"""(() => {{
+    var elem = document.querySelector({json.dumps(selector)});
+    if (!elem || elem.value) return;
+    elem.focus();
+    var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nativeInputValueSetter.call(elem, {json.dumps(value)});
+    elem.dispatchEvent(new Event('input', {{bubbles: true}}));
+    elem.dispatchEvent(new Event('change', {{bubbles: true}}));
+    elem.dispatchEvent(new Event('blur', {{bubbles: true}}));
+}})()"""
+    )
