@@ -5,7 +5,6 @@ import logging
 import os
 import signal
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -111,7 +110,8 @@ def run(args):
         return 2
     except AuthResponseError as exc:
         logger.error(
-            f'Required attributes not found in response ("{exc}", does this endpoint do SSO?), exiting'
+            "Required attributes not found in response; does this endpoint support SSO?",
+            error=str(exc),
         )
         return 3
     except HTTPError as exc:
@@ -248,20 +248,45 @@ def authenticate_to(host, proxy, credentials, display_mode, version):
     return Authenticator(host, proxy, credentials, version).authenticate(display_mode)
 
 
-def create_vpnc_wrapper(on_connect_command):
-    import tempfile
+def get_vpnc_script_path():
+    candidates = (
+        "/etc/vpnc/vpnc-script",
+        "/usr/share/vpnc-scripts/vpnc-script",
+        "/opt/homebrew/etc/vpnc/vpnc-script",
+        "/usr/local/etc/vpnc/vpnc-script",
+    )
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+    raise FileNotFoundError("Cannot find vpnc-script")
 
-    wrapper_script = f"""#!/bin/sh
-/etc/vpnc/vpnc-script "$@"
-if [ "$reason" = "connect" ]; then
-    {on_connect_command} &
-fi
-"""
-    wrapper_file = tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False)
-    wrapper_file.write(wrapper_script)
-    wrapper_file.close()
-    os.chmod(wrapper_file.name, 0o755)
-    return wrapper_file.name
+
+def create_vpnc_wrapper(on_connect_command):
+    if not on_connect_command.strip():
+        raise ValueError("on_connect command is empty")
+
+    hook_command = shlex.join(["/bin/sh", "-c", on_connect_command])
+
+    vpnc_command = shlex.quote(get_vpnc_script_path()) + ' "$@"'
+    wrapper_script = "\n".join(
+        (
+            "#!/bin/sh",
+            vpnc_command,
+            "status=$?",
+            'if [ "$status" -ne 0 ]; then',
+            '    exit "$status"',
+            "fi",
+            'if [ "$reason" = "connect" ]; then',
+            "    " + hook_command + " &",
+            "fi",
+            "exit 0",
+            "",
+        )
+    )
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as file:
+        file.write(wrapper_script)
+    os.chmod(file.name, 0o700)
+    return file.name
 
 
 def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
@@ -295,7 +320,7 @@ def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
     ]
 
     wrapper_script = None
-    if on_connect and sys.platform.startswith("linux"):
+    if on_connect and os.name == "posix":
         wrapper_script = create_vpnc_wrapper(on_connect)
         command_line.extend(["--script", wrapper_script])
         logger.info("Created vpnc wrapper for on_connect", script=wrapper_script)

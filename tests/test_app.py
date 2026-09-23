@@ -1,7 +1,29 @@
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from openconnect_sso import app
+
+
+def test_connect_hook_runs_after_vpnc_script():
+    with (
+        patch("openconnect_sso.app.get_vpnc_script_path", return_value="/vpnc-script"),
+    ):
+        path = app.create_vpnc_wrapper(
+            'resolvectl domain "$TUNDEV" corp && notify-send "VPN connected"'
+        )
+
+    try:
+        wrapper = Path(path).read_text()
+    finally:
+        Path(path).unlink()
+
+    assert '/vpnc-script "$@"' in wrapper
+    assert 'if [ "$reason" = "connect" ]; then' in wrapper
+    assert (
+        "/bin/sh -c "
+        '\'resolvectl domain "$TUNDEV" corp && notify-send "VPN connected"\' &'
+    ) in wrapper
 
 
 def test_openconnect_exit_one_does_not_retry():

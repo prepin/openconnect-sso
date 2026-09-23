@@ -10,7 +10,8 @@ The fork must preserve these capabilities:
 
 - Browser autofill and TOTP support
 - Passwordless startup for existing administrators
-- Connect and disconnect hooks that run as the desktop user
+- A privileged connect hook for route and DNS changes
+- A disconnect hook that runs as the desktop user
 - Access to a gateway that requires legacy TLS behavior
 
 ## Recommended Direction
@@ -75,7 +76,9 @@ As a result, the code can start OpenConnect a second time. This action can reuse
 
 The command comes from a user-writable configuration file. The temporary file also remains user-writable while a root process consumes it.
 
-Connect and disconnect hooks must run as the desktop user. User commands must not enter a root-run shell script.
+The connect hook needs root access for route and DNS changes. This fork accepts that behavior for existing administrators.
+
+The documentation must identify `on_connect` as an unrestricted root command. The disconnect hook runs as the desktop user.
 
 ### 3. Debug Logs Can Contain the VPN Token
 
@@ -175,7 +178,7 @@ The fork needs its own version, repository links, support statement, installatio
 
 1. Remove authentication request and response bodies from logs.
 2. Replace the two OpenConnect attempts with one elevation preflight and one connection attempt.
-3. Disable the current privileged `on_connect` wrapper.
+3. Quote the privileged `on_connect` command and document its root access.
 4. Run disconnect hooks without `shell=True`.
 5. Correct the passwordless sudo documentation.
 6. Add regression tests for the process commands and exit status 1.
@@ -245,9 +248,9 @@ Run authentication as the desktop user. Elevate only the tunnel process.
 
 Use a non-destructive elevation preflight. Then invoke OpenConnect exactly once.
 
-Detect the connected state from the OpenConnect process. Run `on_connect` once from the unprivileged parent process.
+Run `on_connect` from the vpnc script because the saved command changes system DNS configuration. Quote the command before a root shell evaluates it.
 
-Run `on_disconnect` from the same parent process. Use `shlex.split` instead of implicit shell evaluation.
+Run `on_disconnect` from the desktop-user process. Preserve its current user identity.
 
 Users who need shell syntax can configure an explicit command such as `sh -c '...'`.
 
@@ -315,7 +318,7 @@ Add tests for these behaviors:
 - Build the exact privileged command.
 - Do not restart OpenConnect after exit status 1.
 - Send the cookie only through standard input.
-- Run hooks as the desktop user.
+- Run the connect hook as root and the disconnect hook as the desktop user.
 - Apply CLI and configuration precedence.
 - Remove secrets from logs.
 - Generate a fresh TOTP code.
