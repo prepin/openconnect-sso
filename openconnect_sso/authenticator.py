@@ -7,6 +7,7 @@ from openconnect_sso.saml_authenticator import authenticate_in_browser
 
 
 logger = structlog.get_logger()
+HTTP_TIMEOUT = (10, 30)
 
 
 class Authenticator:
@@ -55,7 +56,7 @@ class Authenticator:
     def _detect_authentication_target_url(self):
         # Follow possible redirects in a GET request
         # Authentication will occur using a POST request on the final URL
-        response = requests.get(self.host.vpn_url)
+        response = self.session.get(self.host.vpn_url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
         self.host.address = response.url
         logger.debug("Auth target url", url=self.host.vpn_url)
@@ -63,7 +64,12 @@ class Authenticator:
     def _start_authentication(self):
         request = _create_auth_init_request(self.host, self.host.vpn_url, self.version)
         logger.debug("Sending auth init request")
-        response = self.session.post(self.host.vpn_url, request)
+        response = self.session.post(
+            self.host.vpn_url,
+            request,
+            headers=create_http_headers(self.version),
+            timeout=HTTP_TIMEOUT,
+        )
         logger.debug("Auth init response received", status=response.status_code)
         return parse_response(response)
 
@@ -77,7 +83,12 @@ class Authenticator:
             self.host, auth_request_response, sso_token, self.version
         )
         logger.debug("Sending auth finish request")
-        response = self.session.post(self.host.vpn_url, request)
+        response = self.session.post(
+            self.host.vpn_url,
+            request,
+            headers=create_http_headers(self.version),
+            timeout=HTTP_TIMEOUT,
+        )
         logger.debug("Auth finish response received", status=response.status_code)
         return parse_response(response)
 
@@ -92,20 +103,23 @@ class AuthResponseError(AuthenticationError):
 
 def create_http_session(proxy, version):
     session = requests.Session()
-    session.proxies = {"http": proxy, "https": proxy}
-    session.headers.update(
-        {
-            "User-Agent": f"AnyConnect Linux_64 {version}",
-            "Accept": "*/*",
-            "Accept-Encoding": "identity",
-            "X-Transcend-Version": "1",
-            "X-Aggregate-Auth": "1",
-            "X-Support-HTTP-Auth": "true",
-            "Content-Type": "application/x-www-form-urlencoded",
-            # I know, it is invalid but that’s what Anyconnect sends
-        }
-    )
+    if proxy:
+        session.trust_env = False
+        session.proxies.update({"http": proxy, "https": proxy})
     return session
+
+
+def create_http_headers(version):
+    return {
+        "User-Agent": f"AnyConnect Linux_64 {version}",
+        "Accept": "*/*",
+        "Accept-Encoding": "identity",
+        "X-Transcend-Version": "1",
+        "X-Aggregate-Auth": "1",
+        "X-Support-HTTP-Auth": "true",
+        # I know, it is invalid but that’s what AnyConnect sends.
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
 
 
 E = objectify.ElementMaker(annotate=False)

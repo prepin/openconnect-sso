@@ -20,7 +20,7 @@ from openconnect_sso.browser import Terminated
 from openconnect_sso.config import Credentials
 from openconnect_sso.profile import get_profiles
 
-from requests.exceptions import HTTPError
+from requests.exceptions import RequestException
 
 logger = structlog.get_logger()
 
@@ -114,7 +114,7 @@ def run(args):
             error=str(exc),
         )
         return 3
-    except HTTPError as exc:
+    except RequestException as exc:
         logger.error(f"Request error: {exc}")
         return 4
 
