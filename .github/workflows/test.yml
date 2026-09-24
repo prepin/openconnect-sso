@@ -11,64 +11,35 @@ on:
 
 jobs:
   tests:
-    name: ${{ matrix.os }} / ${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}-latest
+    name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [Ubuntu]
-        python-version: ["3.8", "3.9", "3.10"]
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+    env:
+      QT_QPA_PLATFORM: offscreen
 
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Get full Python version
-        id: full-python-version
-        shell: bash
-        run: echo ::set-output name=version::$(python -c "import sys; print('-'.join(str(v) for v in sys.version_info))")
-
-      - name: Get pip cache dir
-        id: pip-cache
-        run: |
-          echo "::set-output name=dir::$(pip cache dir)"
-
-      - name: Pip cache
-        uses: actions/cache@v2
+      - uses: astral-sh/setup-uv@v9
         with:
-          path: ${{ steps.pip-cache.outputs.dir }}
-          key: pip-${{ runner.os }}-${{ steps.full-python-version.outputs.version }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            pip-${{ runner.os }}-${{ steps.full-python-version.outputs.version }}-
-            pip-${{ runner.os }}-
+          version: '0.12.18'
+          enable-cache: true
 
-      - name: Virtualenv cache
-        uses: actions/cache@v2
-        id: cache-venv
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ steps.full-python-version.outputs.version }}-${{ hashFiles('poetry.lock') }}
+      - name: Install Linux Qt libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1
 
-      - name: Update make
-        if: startsWith(runner.os, 'macOS')
-        run: |
-          brew install make
-          echo 'export PATH=/usr/local/opt/make/libexec/gnubin:$PATH' >> ~/.bash_profile
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python-version }}
 
-      - name: Bootstrap
-        shell: bash
-        run: |
-          # For mac
-          [[ -f ~/.bash_profile ]] && source ~/.bash_profile
-          python -m ensurepip
-          python -m pip install --upgrade pip pre-commit poetry
-          make PRECOMMIT=n dev
-          sudo apt update
-          sudo apt install libegl1
+      - name: Run tests
+        run: uv run --locked pytest
 
-      - name: Run pytest
-        shell: bash
-        run: make test
+      - name: Build distributions
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        run: uv build

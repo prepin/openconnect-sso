@@ -1,15 +1,4 @@
-NIX_QTWRAPPER ?= # Set up environment for locating Qt libraries from Nix
 CONTINUE_ON_ERROR ?= # should be used only for testing
-
-PRE_COMMIT_HOME=$(dir MAKEFILE_LIST).git/pre-commit
-
-ifeq ($(OS),Windows_NT)
-	PYTHON ?= python
-    VENV_BIN := .venv/Scripts
-else
-	PYTHON ?= python3
-    VENV_BIN := .venv/bin
-endif
 
 .ONESHELL:
 SHELL = bash
@@ -86,28 +75,10 @@ endif
 
 .PHONY: dev
 dev:  ## Initializes repository for development
-	@if [[ "$(strip $(PRECOMMIT))" =~ ^(true|1|y|yes)$$ ]]; then
-		$(MAKE) pre-commit-install
-	fi
-	@$(echo-stage) "Checking existing if existing .venv exists..."
-	if [[ -f "$(VENV_BIN)/pip" ]] && "$(VENV_BIN)/pip" --version > /dev/null; then
-		$(echo-stage) "Using existing .venv directory..."
-	else
-		$(echo-stage) "Creating virtualenv in .venv..."
-		rm -rf .venv
-		$(PYTHON) -m venv .venv
-	fi
-	$(echo-stage) "Updating pip in .venv..."
-	$(VENV_BIN)/python -m pip install --upgrade pip
-	$(echo-stage) "Installing openconnect-sso in develop mode..."
-	(source $(VENV_BIN)/activate && poetry install $(POETRYARGS))
-	$(echo-success) "Development installation finished."
-dev: POETRYARGS ?= ## Additional arguments for poetry install
-dev: PRECOMMIT ?= yes ## Install pre-commit hooks
+	uv sync --locked
 
 pre-commit-install:
-	@$(echo-stage) "Setting up pre-commit hooks..."
-	pre-commit install --install-hooks
+	uv run --locked pre-commit install --install-hooks
 
 .PHONY: clean
 clean:  ## Remove temporary files and artifacts
@@ -119,20 +90,20 @@ clean:  ## Remove temporary files and artifacts
 check: pre-commit test  ## Run required tests and coding style checks
 
 .PHONY: pre-commit
-pre-commit: pre-commit-install
-	pre-commit run -a
+pre-commit:
+	uv run --locked pre-commit run -a
 
 .PHONY: test
 test:  ## Run tests
-	$(NIX_QTWRAPPER) $(VENV_BIN)/pytest
+	uv run --locked pytest
 
 ###############################################################################
 ## Release
-VERSION = $(shell $(VENV_BIN)/python -c 'import openconnect_sso; print(f"v{openconnect_sso.__version__}")')
+VERSION = $(shell uv run --locked python -c 'import openconnect_sso; print(f"v{openconnect_sso.__version__}")')
 
 .PHONY: dist
 dist:  ## Build packages from whatever state the repository is
-	poetry build
+	uv build
 	cp CHANGELOG.md dist/CHANGELOG-$(VERSION).md
 
 .PHONY: tag-repo

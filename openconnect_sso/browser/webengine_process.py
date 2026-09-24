@@ -225,7 +225,7 @@ if (typeof window.autoFillFilledFields === 'undefined') {{
 function autoFill() {{
     window.autoFillButtonClicked = false;
     {get_selectors(rules, credentials)}
-    
+
     // Use longer delay if we recently clicked a button (page transitioning)
     var timeSinceLastClick = Date.now() - window.autoFillLastClickTime;
     var delay = (timeSinceLastClick < 2000) ? 2000 : 1000;
@@ -320,9 +320,9 @@ def get_selectors(rules, credentials):
     try {{
     var selectorKey = {selector};
     if (window.autoFillFilledFields.has(selectorKey)) return;
-    
+
     var elem = document.querySelector(selectorKey);
-    
+
     function isVisible(el) {{
         if (!el) return false;
         var style = window.getComputedStyle(el);
@@ -335,7 +335,7 @@ def get_selectors(rules, credentials):
         }}
         return true;
     }}
-    
+
     if (elem && !elem.value && isVisible(elem)) {{
         elem.focus();
         var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
@@ -356,7 +356,7 @@ def get_selectors(rules, credentials):
                 )
         elif rule.action == "click":
             click_statements.append(
-                f"""(function() {{ 
+                f"""(function() {{
     try {{
     if (window.autoFillButtonClicked) return;
 
@@ -365,30 +365,30 @@ def get_selectors(rules, credentials):
         return totpInput && !totpInput.value && (totpInput.offsetWidth > 0 || totpInput.offsetHeight > 0 || totpInput.getClientRects().length > 0);
     }});
     if (pendingTotp) return;
-    
+
     var totpRadio = Array.from(document.querySelectorAll('input[type=radio]')).find(function(r) {{
         var label = r.closest('label') || r.parentElement;
         return label && (label.textContent.includes('TOTP') || label.textContent.includes('Software TOTP'));
     }});
     if (totpRadio && !totpRadio.checked) totpRadio.click();
-    
-    var hasFilledField = Array.from(document.querySelectorAll('input:not([type=radio])')).some(function(inp) {{ 
-        return inp.value && inp.value.length > 0; 
+
+    var hasFilledField = Array.from(document.querySelectorAll('input:not([type=radio])')).some(function(inp) {{
+        return inp.value && inp.value.length > 0;
     }});
-    var hasCheckedRadio = Array.from(document.querySelectorAll('input[type=radio]')).some(function(radio) {{ 
-        return radio.checked; 
+    var hasCheckedRadio = Array.from(document.querySelectorAll('input[type=radio]')).some(function(radio) {{
+        return radio.checked;
     }});
     if (!hasFilledField && !hasCheckedRadio) return;
-    
-    var buttons = Array.from(document.querySelectorAll({selector})).filter(function(b) {{ 
-        return !b.disabled && b.textContent.trim() !== 'Back' && b.textContent.trim() !== 'Назад' && (b.offsetWidth > 0 || b.offsetHeight > 0 || b.getClientRects().length > 0); 
-    }}); 
-    
-    if (buttons.length > 0 && !buttons[0].disabled) {{ 
+
+    var buttons = Array.from(document.querySelectorAll({selector})).filter(function(b) {{
+        return !b.disabled && b.textContent.trim() !== 'Back' && b.textContent.trim() !== 'Назад' && (b.offsetWidth > 0 || b.offsetHeight > 0 || b.getClientRects().length > 0);
+    }});
+
+    if (buttons.length > 0 && !buttons[0].disabled) {{
         window.autoFillButtonClicked = true;
         window.autoFillLastClickTime = Date.now();
         buttons[0].click();
-    }} 
+    }}
     }} catch(e) {{ console.error('[AutoFill] Error:', {selector}, e); }}
 }})();"""
             )

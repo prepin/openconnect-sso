@@ -1,2 +1,4 @@
 [flake8]
 ignore = E203, E501, W503
+per-file-ignores =
+    openconnect_sso/browser/webengine_process.py: E201, E202, E221, E222, E231, E241, E272, E702

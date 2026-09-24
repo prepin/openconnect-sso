@@ -128,5 +128,14 @@ privileged command configuration. `on_disconnect` runs as the desktop user.
 
 ## Development
 
+Install the locked development dependencies, run the tests, and build the
+packages:
+
+```shell
+uv sync --locked
+uv run --locked pytest
+uv build
+```
+
 See [MODERNIZATION.md](MODERNIZATION.md) for the current maintenance plan,
 completed safety work, and remaining changes.

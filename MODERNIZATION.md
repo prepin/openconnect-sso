@@ -49,14 +49,14 @@ This direction depends on a real gateway test. Some gateways offer only the olde
 - The fork is 11 commits ahead of upstream commit `9412807`.
 - The worktree was clean during this review.
 - Runtime code and tests contain approximately 2,233 lines.
-- The package still declares Python `^3.8`.
-- CI tests only Python 3.8, 3.9, and 3.10.
+- The package supports Python 3.11 through 3.14.
+- Test CI covers Linux and macOS with Python 3.11 through 3.14.
 - The current development system uses Python 3.13.15.
 - The current development system uses OpenConnect 9.21.
 - Most tests cover the new sudo code.
 - Authentication and process orchestration have little direct test coverage.
 
-`poetry check --lock` fails because `pyproject.toml` and `poetry.lock` do not agree. The lock still contains dependencies from the old project state.
+`uv.lock` now matches the standard project metadata. The old Poetry lock and Nix files were removed.
 
 The package version is still the upstream version 0.8.1. The repository links, installation guide, support statement, and security notes now identify this fork.
 
@@ -154,15 +154,15 @@ The installed OpenConnect uses GnuTLS. Therefore, `OPENSSL_CONF` does not change
 
 The native authentication test must include the affected gateway. Native OpenConnect can remove the need for the unsafe OpenSSL override.
 
-### 12. Packaging and CI Are Stale
+### 12. Packaging and CI Migration
 
-The Poetry metadata uses deprecated sections. The lock does not match the declared dependencies.
+The package now uses standard project metadata and a uv lock. The build backend is still `poetry-core`.
 
-The workflows use old action versions and deprecated output syntax. They also omit the Python versions that motivated this fork.
+Test CI uses uv and covers the supported Python versions on Linux and macOS. The separate coding-style workflow still uses older actions.
 
-The Nix files are old and untested. The flake lock contains a local `/nix/store` path that other systems cannot fetch.
+The old Nix files depended on the invalid Poetry lock. They were removed with that lock.
 
-The supported installation method is `uv`. The project does not need to maintain Poetry and Nix workflows.
+The supported installation method is `uv`.
 
 ### 13. The Package Version Still Describes Upstream
 
@@ -274,13 +274,13 @@ If the fallback still requires OpenSSL, add an explicit legacy TLS option. Apply
 
 Fix the configuration filename and installation path. Add a warning that the option lowers TLS security.
 
-### Phase 6: Move Project Management to uv
+### Phase 6: Move Project Management to uv (Complete)
 
-Move package metadata to standard `[project]` fields. Keep `poetry-core` as the build backend during the first change.
+Package metadata uses standard `[project]` fields. The build backend remains `poetry-core`.
 
-Replace `poetry.lock` with a checked-in `uv.lock`. The uv lock supports Linux, macOS, and multiple Python versions.
+The checked-in `uv.lock` replaces `poetry.lock`. It supports Linux, macOS, and Python 3.11 through 3.14.
 
-Set the supported Python range to 3.11 through 3.14. Keep the package and command names unless the project is published independently.
+The supported Python range is 3.11 through 3.14. The package and command names remain the same.
 
 Document installation from Git:
 
@@ -288,7 +288,7 @@ Document installation from Git:
 uv tool install git+https://github.com/prepin/openconnect-sso
 ```
 
-Document upgrade and removal commands with the installation steps.
+The README documents installation, upgrade, and removal commands.
 
 ### Phase 7: Reduce Dependencies
 
@@ -344,7 +344,7 @@ Update these items:
 - Hook execution identity
 - Fork changes since upstream 0.8.1
 
-Remove stale Nix and Niv files because uv is the supported installation path.
+The stale Nix and Niv files were removed because uv is the supported installation path.
 
 ## First Milestone
 
