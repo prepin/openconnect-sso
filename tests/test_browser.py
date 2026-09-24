@@ -1,6 +1,7 @@
+import sys
+
 import attr
 import pytest
-import sys
 
 from openconnect_sso.browser import Browser, DisplayMode
 
@@ -43,7 +44,7 @@ async def test_browser_cookies_accessible(httpserver):
 
         await browser.authenticate_at(auth_url, cred)
         await browser.page_loaded()
-        assert browser.cookies.get("cookie-name") == "cookie-value"
+        assert await browser.wait_for_cookie("cookie-name") == "cookie-value"
 
 
 @attr.s

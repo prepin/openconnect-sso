@@ -6,13 +6,20 @@ from openconnect_sso.browser import Browser
 
 log = structlog.get_logger()
 BROWSER_AUTH_TIMEOUT = 600
+COOKIE_WAIT_TIMEOUT = 5
 
 
 async def authenticate_in_browser(
-    proxy, auth_info, credentials, display_mode, timeout=BROWSER_AUTH_TIMEOUT
+    proxy,
+    auth_info,
+    credentials,
+    display_mode,
+    timeout=BROWSER_AUTH_TIMEOUT,
+    cookie_timeout=COOKIE_WAIT_TIMEOUT,
 ):
     async with Browser(proxy, display_mode) as browser:
         await browser.authenticate_at(auth_info.login_url, credentials)
+        deadline = asyncio.get_running_loop().time() + timeout
 
         try:
             await asyncio.wait_for(
@@ -22,8 +29,12 @@ async def authenticate_in_browser(
             raise BrowserAuthenticationTimeout(timeout) from exc
 
         try:
-            return browser.cookies[auth_info.token_cookie_name]
-        except KeyError as exc:
+            remaining = max(0, deadline - asyncio.get_running_loop().time())
+            return await asyncio.wait_for(
+                browser.wait_for_cookie(auth_info.token_cookie_name),
+                min(cookie_timeout, remaining),
+            )
+        except asyncio.TimeoutError as exc:
             raise TokenCookieMissing(auth_info.token_cookie_name) from exc
 
 

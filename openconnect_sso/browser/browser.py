@@ -14,6 +14,7 @@ class Browser:
         self.updater = None
         self.running = False
         self._urls = asyncio.Queue()
+        self._cookie_updates = asyncio.Queue()
         self.url = None
         self.cookies = {}
         self.loop = asyncio.get_event_loop()
@@ -45,6 +46,7 @@ class Browser:
                 else:
                     logger.info("Browser exited")
                 await self._urls.put(None)
+                await self._cookie_updates.put(None)
                 return
             logger.debug("Message received from browser", message=state)
 
@@ -52,6 +54,7 @@ class Browser:
                 await self._urls.put(state.url)
             elif isinstance(state, web.SetCookie):
                 self.cookies[state.name] = state.value
+                await self._cookie_updates.put(state.name)
             else:
                 logger.error("Message unrecognized", message=state)
 
@@ -64,6 +67,13 @@ class Browser:
         if not self.running:
             raise Terminated()
         self.url = rv
+
+    async def wait_for_cookie(self, name):
+        while name not in self.cookies:
+            await self._cookie_updates.get()
+            if not self.running:
+                raise Terminated()
+        return self.cookies[name]
 
     async def __aenter__(self):
         await self.spawn()
