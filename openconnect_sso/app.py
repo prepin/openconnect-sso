@@ -184,21 +184,19 @@ def configure_logger(logger, level):
 
 
 async def _run(args, cfg):
-    credentials = None
-    if cfg.credentials:
-        credentials = cfg.credentials
-    elif args.user:
-        credentials = Credentials(args.user)
+    credentials = Credentials(args.user) if args.user else cfg.credentials
+    if args.user:
+        cfg.credentials = credentials
 
     if credentials and not credentials.password:
-        credentials.password = getpass.getpass(prompt=f"Password ({args.user}): ")
-        cfg.credentials = credentials
+        credentials.password = getpass.getpass(
+            prompt=f"Password ({credentials.username}): "
+        )
 
     if credentials and not credentials.totp:
         credentials.totp = getpass.getpass(
-            prompt=f"TOTP secret (leave blank if not required) ({args.user}): "
+            prompt=f"TOTP secret (leave blank if not required) ({credentials.username}): "
         )
-        cfg.credentials = credentials
 
     if cfg.default_profile and not (args.use_profile_selector or args.server):
         selected_profile = cfg.default_profile

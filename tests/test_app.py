@@ -1,12 +1,12 @@
 import logging
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from requests.exceptions import Timeout
 
-from openconnect_sso import app
+from openconnect_sso import app, cli, config
 from openconnect_sso.saml_authenticator import (
     BrowserAuthenticationTimeout,
     TokenCookieMissing,
@@ -58,6 +58,95 @@ def test_browser_authentication_errors_are_reported(exception, exit_code):
 
     assert result == exit_code
     error.assert_called_once_with(str(exception))
+
+
+@pytest.mark.parametrize(
+    ("options", "expected_level"),
+    (([], logging.DEBUG), (["--log-level", "INFO"], logging.INFO)),
+)
+def test_log_level_prefers_cli_over_saved_config(options, expected_level):
+    args = cli.create_argparser().parse_args(options)
+    cfg = config.Config(log_level=logging.DEBUG)
+    loop = MagicMock()
+    loop.run_until_complete.side_effect = Timeout("gateway timed out")
+
+    with (
+        patch("openconnect_sso.app.config.load", return_value=cfg),
+        patch("openconnect_sso.app.should_prompt_sudo_setup", return_value=False),
+        patch("openconnect_sso.app.configure_logger") as configure_logger,
+        patch("openconnect_sso.app.asyncio.new_event_loop", return_value=loop),
+        patch("openconnect_sso.app.asyncio.set_event_loop"),
+        patch("openconnect_sso.app._run", new=lambda args, cfg: object()),
+        patch("openconnect_sso.app.logger.error"),
+    ):
+        assert app.run(args) == 4
+
+    configure_logger.assert_called_once_with(logging.getLogger(), expected_level)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("options", "secrets", "expected_user", "expected_prompts"),
+    (
+        (
+            ["--user", "new-user"],
+            {"old-user": "old-password"},
+            "new-user",
+            [
+                "Password (new-user): ",
+                "TOTP secret (leave blank if not required) (new-user): ",
+            ],
+        ),
+        (
+            ["--user", "new-user"],
+            {"new-user": "new-password", "totp/new-user": "JBSWY3DPEHPK3PXP"},
+            "new-user",
+            [],
+        ),
+        (
+            [],
+            {},
+            "old-user",
+            [
+                "Password (old-user): ",
+                "TOTP secret (leave blank if not required) (old-user): ",
+            ],
+        ),
+        (
+            [],
+            {"old-user": "old-password", "totp/old-user": "JBSWY3DPEHPK3PXP"},
+            "old-user",
+            [],
+        ),
+    ),
+)
+async def test_account_selection_uses_matching_keyring_and_prompts(
+    options, secrets, expected_user, expected_prompts
+):
+    args = cli.create_argparser().parse_args(options)
+    cfg = config.Config(
+        default_profile={"address": "vpn.example.com", "user_group": "", "name": ""},
+        credentials={"username": "old-user"},
+    )
+
+    with (
+        patch(
+            "openconnect_sso.config.keyring.get_password",
+            side_effect=lambda _, key: secrets.get(key),
+        ),
+        patch("openconnect_sso.config.keyring.set_password"),
+        patch(
+            "openconnect_sso.app.getpass.getpass", side_effect=["password", ""]
+        ) as prompt,
+        patch(
+            "openconnect_sso.app.authenticate_to", new_callable=AsyncMock
+        ) as authenticate,
+    ):
+        await app._run(args, cfg)
+
+    assert cfg.credentials.username == expected_user
+    assert authenticate.await_args.args[2].username == expected_user
+    assert [call.kwargs["prompt"] for call in prompt.call_args_list] == expected_prompts
 
 
 def test_connect_hook_runs_after_vpnc_script():
