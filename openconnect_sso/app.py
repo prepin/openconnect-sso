@@ -19,6 +19,10 @@ from openconnect_sso.authenticator import Authenticator, AuthResponseError
 from openconnect_sso.browser import Terminated
 from openconnect_sso.config import Credentials
 from openconnect_sso.profile import get_profiles
+from openconnect_sso.saml_authenticator import (
+    BrowserAuthenticationTimeout,
+    TokenCookieMissing,
+)
 
 from requests.exceptions import RequestException
 
@@ -117,6 +121,12 @@ def run(args):
     except RequestException as exc:
         logger.error(f"Request error: {exc}")
         return 4
+    except BrowserAuthenticationTimeout as exc:
+        logger.error(str(exc))
+        return 5
+    except TokenCookieMissing as exc:
+        logger.error(str(exc))
+        return 6
 
     config.save(cfg)
 

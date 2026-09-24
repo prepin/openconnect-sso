@@ -1,11 +1,16 @@
-from pathlib import Path
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
 from requests.exceptions import Timeout
 
 from openconnect_sso import app
+from openconnect_sso.saml_authenticator import (
+    BrowserAuthenticationTimeout,
+    TokenCookieMissing,
+)
 
 
 def test_request_timeout_returns_network_error():
@@ -26,6 +31,33 @@ def test_request_timeout_returns_network_error():
 
     assert result == 4
     error.assert_called_once_with("Request error: gateway timed out")
+
+
+@pytest.mark.parametrize(
+    ("exception", "exit_code"),
+    (
+        (BrowserAuthenticationTimeout(600), 5),
+        (TokenCookieMissing("sso-token"), 6),
+    ),
+)
+def test_browser_authentication_errors_are_reported(exception, exit_code):
+    args = SimpleNamespace(log_level=logging.WARNING)
+    loop = MagicMock()
+    loop.run_until_complete.side_effect = exception
+
+    with (
+        patch("openconnect_sso.app.config.load", return_value=MagicMock()),
+        patch("openconnect_sso.app.should_prompt_sudo_setup", return_value=False),
+        patch("openconnect_sso.app.configure_logger"),
+        patch("openconnect_sso.app.asyncio.new_event_loop", return_value=loop),
+        patch("openconnect_sso.app.asyncio.set_event_loop"),
+        patch("openconnect_sso.app._run", new=lambda args, cfg: object()),
+        patch("openconnect_sso.app.logger.error") as error,
+    ):
+        result = app.run(args)
+
+    assert result == exit_code
+    error.assert_called_once_with(str(exception))
 
 
 def test_connect_hook_runs_after_vpnc_script():
