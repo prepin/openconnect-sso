@@ -7,6 +7,21 @@ from openconnect_sso.browser import Browser, DisplayMode
 
 
 @pytest.mark.asyncio
+async def test_browser_selects_cookie_for_final_url():
+    browser = Browser()
+    browser.cookies = {
+        ("sso-token", "login.example.com", "/"): "identity-provider-token",
+        ("sso-token", ".vpn.example.com", "/auth"): "vpn-token",
+    }
+
+    token = await browser.wait_for_cookie(
+        "sso-token", "https://vpn.example.com/auth/final"
+    )
+
+    assert token == "vpn-token"
+
+
+@pytest.mark.asyncio
 async def test_browser_context_manager_should_work_in_empty_context_manager():
     async with Browser() as _:
         pass
@@ -44,7 +59,7 @@ async def test_browser_cookies_accessible(httpserver):
 
         await browser.authenticate_at(auth_url, cred)
         await browser.page_loaded()
-        assert await browser.wait_for_cookie("cookie-name") == "cookie-value"
+        assert await browser.wait_for_cookie("cookie-name", auth_url) == "cookie-value"
 
 
 @attr.s

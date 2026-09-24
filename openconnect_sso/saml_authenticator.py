@@ -31,7 +31,9 @@ async def authenticate_in_browser(
         try:
             remaining = max(0, deadline - asyncio.get_running_loop().time())
             return await asyncio.wait_for(
-                browser.wait_for_cookie(auth_info.token_cookie_name),
+                browser.wait_for_cookie(
+                    auth_info.token_cookie_name, auth_info.login_final_url
+                ),
                 min(cookie_timeout, remaining),
             )
         except asyncio.TimeoutError as exc:

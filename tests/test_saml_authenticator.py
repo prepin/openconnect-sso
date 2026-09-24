@@ -35,7 +35,7 @@ class FakeBrowser:
         else:
             await asyncio.Future()
 
-    async def wait_for_cookie(self, name):
+    async def wait_for_cookie(self, name, url=None):
         if self.cookie_error:
             raise self.cookie_error
         if name in self.cookies:
@@ -83,7 +83,7 @@ async def test_browser_authentication_reports_missing_cookie_and_closes_browser(
 async def test_browser_authentication_waits_for_cookie_after_final_url():
     browser = FakeBrowser(final_url=auth_info().login_final_url)
 
-    async def add_cookie(name):
+    async def add_cookie(name, url):
         await asyncio.sleep(0)
         browser.cookies[name] = "token"
         return "token"

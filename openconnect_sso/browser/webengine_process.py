@@ -47,6 +47,8 @@ class StartupInfo:
 class SetCookie:
     name = attr.ib()
     value = attr.ib()
+    domain = attr.ib(default="")
+    path = attr.ib(default="/")
 
 
 class Process(multiprocessing.Process):
@@ -244,8 +246,13 @@ autoFill();
             fill_totp(self.page(), selector, self._credentials)
 
     def _on_cookie_added(self, cookie):
-        logger.debug("Cookie set", name=to_str(cookie.name()))
-        self._on_update(SetCookie(to_str(cookie.name()), to_str(cookie.value())))
+        name = to_str(cookie.name())
+        domain = cookie.domain()
+        path = cookie.path() or "/"
+        logger.debug("Cookie set", name=name, domain=domain, path=path)
+        self._on_update(
+            SetCookie(name, to_str(cookie.value()), domain=domain, path=path)
+        )
 
     def _on_load_finished(self, success):
         url = self.page().url().toString()

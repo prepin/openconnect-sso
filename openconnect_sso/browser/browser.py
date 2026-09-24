@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import urlparse
 
 import structlog
 
@@ -53,7 +54,8 @@ class Browser:
             if isinstance(state, web.Url):
                 await self._urls.put(state.url)
             elif isinstance(state, web.SetCookie):
-                self.cookies[state.name] = state.value
+                key = (state.name, state.domain.lower(), state.path or "/")
+                self.cookies[key] = state.value
                 await self._cookie_updates.put(state.name)
             else:
                 logger.error("Message unrecognized", message=state)
@@ -68,12 +70,25 @@ class Browser:
             raise Terminated()
         self.url = rv
 
-    async def wait_for_cookie(self, name):
-        while name not in self.cookies:
+    async def wait_for_cookie(self, name, url=None):
+        while True:
+            cookie = self._find_cookie(name, url)
+            if cookie is not None:
+                return cookie
             await self._cookie_updates.get()
             if not self.running:
                 raise Terminated()
-        return self.cookies[name]
+
+    def _find_cookie(self, name, url):
+        parsed = urlparse(url) if url else None
+        candidates = []
+        for (cookie_name, domain, path), value in self.cookies.items():
+            if cookie_name != name:
+                continue
+            if parsed and not cookie_matches_url(domain, path, parsed):
+                continue
+            candidates.append(((bool(domain), len(domain), len(path)), value))
+        return max(candidates, default=(None, None))[1]
 
     async def __aenter__(self):
         await self.spawn()
@@ -92,3 +107,20 @@ class Browser:
 
 class Terminated(Exception):
     pass
+
+
+def cookie_matches_url(domain, path, url):
+    host = (url.hostname or "").lower()
+    cookie_domain = domain.lstrip(".").lower()
+    if (
+        cookie_domain
+        and host != cookie_domain
+        and not host.endswith("." + cookie_domain)
+    ):
+        return False
+
+    request_path = url.path or "/"
+    cookie_path = path or "/"
+    if request_path == cookie_path or cookie_path == "/":
+        return True
+    return request_path.startswith(cookie_path.rstrip("/") + "/")
