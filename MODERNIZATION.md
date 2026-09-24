@@ -58,7 +58,7 @@ This direction depends on a real gateway test. Some gateways offer only the olde
 
 `poetry check --lock` fails because `pyproject.toml` and `poetry.lock` do not agree. The lock still contains dependencies from the old project state.
 
-The package version and repository links still identify upstream version 0.8.1. The README also contains old installation examples and upstream badges.
+The package version is still the upstream version 0.8.1. The repository links, installation guide, support statement, and security notes now identify this fork.
 
 ## Findings
 
@@ -164,13 +164,13 @@ The Nix files are old and untested. The flake lock contains a local `/nix/store`
 
 The supported installation method is `uv`. The project does not need to maintain Poetry and Nix workflows.
 
-### 13. Documentation Still Describes Upstream
+### 13. The Package Version Still Describes Upstream
 
-The README badge and repository links point to `vlaci/openconnect-sso`. Installation output refers to version 0.4.0 and Python 3.7.
+The README and repository links now identify this fork. The stale PyPI, AUR, Nix, and Windows installation instructions were removed.
 
-The README recommends an undefined `full` extra. It also describes unrestricted passwordless OpenConnect as secure.
+The installation guide now uses `uv`. It also describes the passwordless sudo and privileged hook risks.
 
-The fork needs its own version, repository links, support statement, installation steps, and security notes.
+The fork still needs its own version before its first release.
 
 ## Implementation Plan
 

@@ -1,282 +1,132 @@
 # openconnect-sso
 
-Wrapper script for OpenConnect supporting Azure AD (SAMLv2) authentication
-to Cisco SSL-VPNs
+Maintained fork of openconnect-sso for Cisco SSL-VPN authentication through
+Azure AD (SAMLv2), with automatic password and TOTP entry.
 
-[![Tests Status
-](https://github.com/vlaci/openconnect-sso/workflows/Tests/badge.svg?branch=master&event=push)](https://github.com/vlaci/openconnect-sso/actions?query=workflow%3ATests+branch%3Amaster+event%3Apush)
+[![Tests](https://github.com/prepin/openconnect-sso/actions/workflows/test.yml/badge.svg)](https://github.com/prepin/openconnect-sso/actions/workflows/test.yml)
+
+## Support
+
+This fork supports Linux and macOS. It requires:
+
+- OpenConnect
+- A desktop keyring
+- [uv](https://docs.astral.sh/uv/) for installation
+
+The Python package includes the Qt browser dependencies.
 
 ## Installation
 
-### Using pip/pipx
-
-A generic way that works on most 'standard' Linux distributions out of the box.
-The following example shows how to install `openconect-sso` along with its
-dependencies including Qt:
+Install the current fork from Git:
 
 ```shell
-$ pip install --user pipx
-Successfully installed pipx
-$ pipx install "openconnect-sso[full]"
-⣾ installing openconnect-sso
-  installed package openconnect-sso 0.4.0, Python 3.7.5
-  These apps are now globally available
-    - openconnect-sso
-⚠️  Note: '/home/vlaci/.local/bin' is not on your PATH environment variable.
-These apps will not be globally accessible until your PATH is updated. Run
-`pipx ensurepath` to automatically add it, or manually modify your PATH in your
-shell's config file (i.e. ~/.bashrc).
-done! ✨ 🌟 ✨
-Successfully installed openconnect-sso
-$ pipx ensurepath
-Success! Added /home/vlaci/.local/bin to the PATH environment variable.
-Consider adding shell completions for pipx. Run 'pipx completions' for
-instructions.
-
-You likely need to open a new terminal or re-login for the changes to take
-effect. ✨ 🌟 ✨
+uv tool install git+https://github.com/prepin/openconnect-sso
 ```
 
-Of course you can also install via `pip` instead of `pipx` if you'd like to
-install system-wide or a virtualenv of your choice.
-
-### On Arch Linux
-
-There is an unofficial package available for Arch Linux on
-[AUR](https://aur.archlinux.org/packages/openconnect-sso/). You can use your
-favorite AUR helper to install it:
-
-``` shell
-yay -S openconnect-sso
-```
-
-### Using nix
-
-The easiest method to try is by installing directly:
+Upgrade or remove the tool with these commands:
 
 ```shell
-$ nix-env -i -f https://github.com/vlaci/openconnect-sso/archive/master.tar.gz
-unpacking 'https://github.com/vlaci/openconnect-sso/archive/master.tar.gz'...
-[...]
-installing 'openconnect-sso-0.4.0'
-these derivations will be built:
-  /nix/store/2z47740z1rr2cfqfin5lnq04sq3c5xjg-openconnect-sso-0.4.0.drv
-[...]
-building '/nix/store/50q496iqf840wi8b95cfmgn07k6y5b59-user-environment.drv'...
-created 606 symlinks in user environment
-$ openconnect-sso
+uv tool upgrade openconnect-sso
+uv tool uninstall openconnect-sso
 ```
 
-An overlay is also available to use in nix expressions:
-
-``` nix
-let
-  openconnectOverlay = import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix";
-  pkgs = import <nixpkgs> { overlays = [ openconnectOverlay ]; };
-in
-  #  pkgs.openconnect-sso is available in this context
-```
-
-... or to use in `configuration.nix`:
-
-``` nix
-{ config, ... }:
-
-{
-  nixpkgs.overlays = [
-    (import "${builtins.fetchTarball https://github.com/vlaci/openconnect-sso/archive/master.tar.gz}/overlay.nix")
-  ];
-}
-```
-
-### Windows *(EXPERIMENTAL)*
-
-Install with [pip/pipx](#using-pippipx) and be sure that you have `sudo` and `openconnect`
-executable commands in your PATH.
+The upstream PyPI, AUR, and Nix packages do not contain this fork's changes.
 
 ## Usage
 
-If you want to save credentials and get them automatically
-injected in the web browser:
+Provide the VPN server and your user name on the first connection:
 
 ```shell
-$ openconnect-sso --server vpn.server.com/group --user user@domain.com
-Password (user@domain.com):
-[info     ] Authenticating to VPN endpoint ...
+openconnect-sso --server vpn.example.com/group --user user@example.com
 ```
 
-User credentials are automatically saved to the users login keyring (if
-available).
+The application saves the selected server in its configuration file. It saves
+the password and TOTP seed in the desktop keyring.
 
-If you already have Cisco AnyConnect set-up, then `--server` argument is
-optional. Also, the last used `--server` address is saved between sessions so
-there is no need to always type in the same arguments:
+Later connections can use the saved configuration:
 
 ```shell
-$ openconnect-sso
-[info     ] Authenticating to VPN endpoint ...
+openconnect-sso
 ```
 
-Configuration is saved in `$XDG_CONFIG_HOME/openconnect-sso/config.toml`. On
-typical Linux installations it is located under
-`$HOME/.config/openconnect-sso/config.toml`
+The configuration file is at
+`$XDG_CONFIG_HOME/openconnect-sso/config.toml`. The usual Linux path is
+`$HOME/.config/openconnect-sso/config.toml`.
 
-For CISCO-VPN and TOTP the following seems to work by tuning the config.toml
-and removing the default "submit"-action to the following:
+### TOTP Autofill
 
-```
-[[auto_fill_rules."https://*"]]
-selector = "input[data-report-event=Signin_Submit]"
-action = "click"
+The default rules support common Azure AD password and TOTP fields. Add a rule
+to `config.toml` if your provider uses a different TOTP field:
 
+```toml
 [[auto_fill_rules."https://*"]]
 selector = "input[type=tel]"
 fill = "totp"
 ```
 
-### Setting up Passwordless sudo
+The browser generates the TOTP value when the field appears. It does not put
+the TOTP seed in JavaScript.
 
-openconnect-sso requires sudo privileges to run openconnect. You can configure
-passwordless sudo for openconnect to avoid entering your password on every connection.
+### Authentication Only
 
-#### Automatic Setup (Recommended)
+Use `--authenticate` to print connection data without starting the tunnel:
 
-Run the setup command:
+```shell
+openconnect-sso --authenticate
+```
+
+**WARNING:** The output contains a reusable VPN session cookie. Do not write it
+to a persistent log.
+
+### OpenConnect Arguments
+
+Put OpenConnect arguments after the `--` separator:
+
+```shell
+openconnect-sso -- --base-mtu=1370
+```
+
+## Passwordless sudo
+
+OpenConnect needs administrator privileges to create the tunnel and configure
+network routes. This fork can create a passwordless sudo rule:
 
 ```shell
 openconnect-sso --setup-sudo
 ```
 
-This will:
-- Detect your openconnect installation path
-- Create appropriate sudoers configuration
-- Only allow passwordless execution of openconnect (secure)
+**WARNING:** Use this feature only for an account that already has
+administrator access. OpenConnect accepts arbitrary arguments. Its `--script`
+option can execute commands as root. This sudo rule does not grant VPN-only
+access.
 
-You'll be prompted for your administrator password once during setup.
-
-#### Manual Setup
-
-**Linux:**
-
-1. Find your openconnect path:
-   ```shell
-   which openconnect
-   ```
-
-2. Create sudoers file:
-   ```shell
-   sudo visudo -f /etc/sudoers.d/openconnect-sso
-   ```
-
-3. Add this line (replace `<username>` and `<path>`):
-   ```
-   <username> ALL=(ALL) NOPASSWD: /usr/bin/openconnect
-   ```
-
-4. Set correct permissions:
-   ```shell
-   sudo chmod 0440 /etc/sudoers.d/openconnect-sso
-   ```
-
-**macOS:**
-
-The process is similar to Linux. If your system supports `/etc/sudoers.d/`
-(macOS 10.13+), follow the Linux instructions. Otherwise:
-
-1. Edit sudoers:
-   ```shell
-   sudo visudo
-   ```
-
-2. Add at the end:
-   ```
-   <username> ALL=(ALL) NOPASSWD: /usr/local/bin/openconnect
-   ```
-
-#### Security Considerations
-
-- Only the specific openconnect binary can run without password
-- Regular sudo still requires password for other commands
-- You can remove the configuration anytime:
-  ```shell
-  openconnect-sso --remove-sudo-setup
-  ```
-
-#### Troubleshooting
-
-If you still see password prompts after setup:
-
-1. Verify the configuration:
-   ```shell
-   sudo -l
-   ```
-
-2. Check file permissions (must be 0440):
-   ```shell
-   ls -l /etc/sudoers.d/openconnect-sso
-   ```
-
-3. Test sudo access:
-   ```shell
-   sudo -n openconnect --version
-   ```
-
-### Adding custom `openconnect` arguments
-
-Sometimes you need to add custom `openconnect` arguments. One situation can be if you get similar error messages:
+Remove the rule with this command:
 
 ```shell
-Failed to read from SSL socket: The transmitted packet is too large (EMSGSIZE).
-Failed to recv DPD request (-5)
+openconnect-sso --remove-sudo-setup
 ```
 
-or:
+If passwordless setup does not work, inspect the active policy and test the
+exact OpenConnect binary:
 
 ```shell
-Detected MTU of 1370 bytes (was 1406)
+sudo -l
+sudo -n /usr/bin/openconnect --version
 ```
 
-Generally, you can add `openconnect` arguments after the `--` separator. This is called _"positional arguments"_. The
-solution of the previous errors is setting `--base-mtu` e.g.:
+## Connection Hooks
 
-```shell
-openconnect-sso --server vpn.server.com/group --user user@domain.com -- --base-mtu=1370
-#                                                          separator ^^|^^^^^^^^^^^^^^^ openconnect args
+You can set connection hooks in `config.toml`:
+
+```toml
+on_connect = 'resolvectl domain "$TUNDEV" corp.example.com'
+on_disconnect = 'notify-send "VPN disconnected"'
 ```
+
+**WARNING:** `on_connect` runs as root from the vpnc script. Treat it as
+privileged command configuration. `on_disconnect` runs as the desktop user.
 
 ## Development
 
-`openconnect-sso` is developed using [Nix](https://nixos.org/nix/). Refer to the
-[Quick Start section of the Nix
-manual](https://nixos.org/nix/manual/#chap-quick-start) to see how to get it
-installed on your machine.
-
-To get dropped into a development environment, just type `nix-shell`:
-
-```shell
-$ nix-shell
-Sourcing python-catch-conflicts-hook.sh
-Sourcing python-remove-bin-bytecode-hook.sh
-Sourcing pip-build-hook
-Using pipBuildPhase
-Sourcing pip-install-hook
-Using pipInstallPhase
-Sourcing python-imports-check-hook.sh
-Using pythonImportsCheckPhase
-Run 'make help' for available commands
-
-[nix-shell]$
-```
-
-To try an installed version of the package, issue `nix-build`:
-
-```shell
-$ nix build
-[1 built, 0.0 MiB DL]
-
-$ result/bin/openconnect-sso --help
-```
-
-Alternatively you may just [get Poetry](https://python-poetry.org/docs/) and
-start developing by using the included `Makefile`. Type `make help` to see the
-possible make targets.
+See [MODERNIZATION.md](MODERNIZATION.md) for the current maintenance plan,
+completed safety work, and remaining changes.

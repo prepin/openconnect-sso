@@ -58,12 +58,13 @@ def prompt_sudo_setup(cfg):
     from prompt_toolkit.shortcuts import button_dialog
 
     result = button_dialog(
-        title="Setup Passwordless sudo",
+        title="Set Up Passwordless sudo",
         text=(
-            "openconnect-sso requires sudo to run openconnect.\n\n"
-            "Would you like to configure passwordless sudo for openconnect?\n"
-            "This will only allow openconnect to run without password.\n\n"
-            "You can also run: openconnect-sso --setup-sso"
+            "Use passwordless sudo only if this account already has "
+            "administrator access.\n"
+            "OpenConnect accepts --script and can run commands as root.\n\n"
+            "Configure passwordless sudo for OpenConnect?\n\n"
+            "You can also run: openconnect-sso --setup-sudo"
         ),
         buttons=[
             ("Setup Now", True),

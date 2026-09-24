@@ -93,7 +93,7 @@ def create_argparser():
     setup_group.add_argument(
         "--setup-sudo",
         action="store_true",
-        help="Configure passwordless sudo for openconnect",
+        help="Configure passwordless sudo for an existing administrator",
     )
     setup_group.add_argument(
         "--remove-sudo-setup",
@@ -185,6 +185,11 @@ def setup_sudo_configuration():
         return 1
 
     # Prompt user
+    print(
+        "WARNING: Use this only for an account that already has administrator access."
+    )
+    print("OpenConnect accepts --script and can run arbitrary commands as root.")
+    print()
     print(f"This will configure passwordless sudo for: {openconnect_path}")
     print("Administrator password required.")
     print()

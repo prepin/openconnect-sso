@@ -5,8 +5,8 @@ description = "Wrapper script for OpenConnect supporting Azure AD (SAMLv2) authe
 license = "GPL-3.0-only"
 authors = ["László Vaskó <laszlo.vasko@outlook.com>"]
 readme = "README.md"
-homepage = "https://github.com/vlaci/openconnect-sso"
-repository = "https://github.com/vlaci/openconnect-sso"
+homepage = "https://github.com/prepin/openconnect-sso"
+repository = "https://github.com/prepin/openconnect-sso"
 
 classifiers = [
     "Development Status :: 4 - Beta",
