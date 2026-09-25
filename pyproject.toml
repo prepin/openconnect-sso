@@ -38,11 +38,9 @@ openconnect-sso = "openconnect_sso.cli:main"
 
 [dependency-groups]
 dev = [
-    "coverage_enable_subprocess>=1,<2",
     "pytest>=8,<10",
     "black==22.10",
     "pytest-asyncio>=1,<2",
-    "pytest-cov>=4,<8",
     "pytest-httpserver>=1,<2",
     "pre-commit>=4,<5",
 ]
