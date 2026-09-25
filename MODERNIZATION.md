@@ -14,35 +14,11 @@ The fork must preserve these capabilities:
 - A disconnect hook that runs as the desktop user
 - Access to a gateway that requires legacy TLS behavior
 
-## Recommended Direction
+## Authentication Decision
 
-The fork can become a thin convenience layer around modern OpenConnect. It does not need to maintain a second AnyConnect protocol implementation.
+The affected gateway did not offer native external-browser SSO to OpenConnect 9.21 with the saved profile. On Linux, `openconnect --authenticate --external-browser=xdg-open` completed TLS and sent an XML POST. Then it exited with a "no SSO" diagnostic before the browser opened or a cookie appeared.
 
-The target flow is:
-
-```text
-CLI, profiles, and configuration
-    |
-    v
-unprivileged openconnect --authenticate --external-browser=...
-    |
-    v
-OpenConnect returns the cookie and connection data
-    |
-    v
-one privileged OpenConnect tunnel process
-```
-
-OpenConnect supports AnyConnect external-browser SSO from version 9.0. OpenConnect 9.21 is installed on the current development system.
-
-The browser can use one of these modes:
-
-- The system browser is the default mode.
-- A small PyQt helper provides autofill and TOTP support.
-
-OpenConnect will own the XML protocol, SAML callback, token encryption, redirects, proxy behavior, and cookie transfer. The helper will only open the supplied URL and fill browser fields.
-
-This direction depends on a real gateway test. Some gateways offer only the older embedded SSO method.
+The existing `openconnect-sso --authenticate` flow succeeded against the same gateway after the stale tunnel processes stopped. Keep the embedded browser, password autofill, and TOTP path. Do not add a second native authentication path for this gateway.
 
 ## Repository State
 
@@ -152,7 +128,7 @@ Nothing installs the OpenSSL configuration file. The configuration enables `Unsa
 
 The installed OpenConnect uses GnuTLS. Therefore, `OPENSSL_CONF` does not change its TLS behavior.
 
-The native authentication test must include the affected gateway. Native OpenConnect can remove the need for the unsafe OpenSSL override.
+The native authentication test reached the affected gateway but did not receive an external-browser SSO flow. The existing authentication path still needs its legacy TLS configuration.
 
 ### 12. Packaging and CI Migration
 
@@ -185,62 +161,21 @@ The fork still needs its own version before its first release.
 
 This phase is small because the native authentication work can remove much of the affected code.
 
-### Phase 1: Prove Native OpenConnect Authentication
+### Phase 1: Test Native OpenConnect Authentication (Complete for This Gateway)
 
-Create a narrow experimental path that invokes `openconnect --authenticate` as the desktop user.
+The Linux test used OpenConnect 9.21, the saved profile, the AnyConnect user agent, and `--external-browser=xdg-open`. The gateway was reachable, but native authentication stopped before browser handoff. The saved profile has no authgroup or usergroup. This test did not exercise proxy behavior or macOS.
 
-Use `xdg-open` on Linux and `open` on macOS for the first test. Parse these output fields without shell evaluation:
+No cookie was returned. The experiment did not start a privileged tunnel or write a cookie to disk.
 
-- `COOKIE`
-- `CONNECT_URL`
-- `FINGERPRINT`
-- `RESOLVE`
+### Phase 2: Retain the Working Authentication Path
 
-Pass the cookie to the privileged connection process through standard input. Do not store it in a file or command-line argument.
+Keep the custom protocol flow and PyQt browser for this gateway. HTTP timeouts, explicit protocol errors, the browser deadline, domain-aware cookies, fresh TOTP, and secret-free logs are in place.
 
-The gateway test must cover these cases:
+The final-URL comparison still needs normalization. Page-load failures still need explicit error reporting.
 
-- SSO and MFA complete successfully.
-- The external-browser callback reaches OpenConnect.
-- The authgroup and usergroup values work.
-- Proxy behavior works.
-- The returned cookie starts a tunnel.
-- Linux and macOS open the browser correctly.
-- The legacy TLS gateway still connects.
+### Phase 3: Preserve Automatic Browser Entry
 
-### Phase 2: Apply the Authentication Decision
-
-If native authentication works, remove these components:
-
-- `openconnect_sso/authenticator.py`
-- `openconnect_sso/saml_authenticator.py`
-- Custom HTTP authentication requests
-- Custom SAML cookie coordination
-- Exact final-URL matching
-- Most browser multiprocessing coordination
-
-If native authentication does not work, retain the current path as a fallback. Then add these controls:
-
-- HTTP connection and read timeouts
-- Explicit protocol exceptions
-- URL normalization
-- A browser authentication timeout
-- Page-load error propagation
-- Domain-aware cookie selection
-- Fresh TOTP generation
-- Secret-free logs
-
-Do not maintain both authentication paths after the gateway test proves that one path is sufficient.
-
-### Phase 3: Preserve Autofill as a Browser Helper
-
-Adapt the PyQt browser into a small executable for `--external-browser`.
-
-The helper will receive a URL from OpenConnect. It will open the URL and apply the existing autofill rules.
-
-The helper will retrieve secrets from the keyring as the desktop user. It will generate a new TOTP code when the matching field appears.
-
-The system browser will remain the default. The embedded helper will be an explicit autofill mode.
+Keep password and TOTP autofill in the current Qt browser. Do not replace the default workflow with a system browser that requires manual entry.
 
 ### Phase 4: Correct Privilege and Hook Behavior
 
@@ -266,11 +201,9 @@ Keep passwordless setup only for users who already have administrator access. Ap
 
 ### Phase 5: Preserve Legacy Gateway Access
 
-Test the affected gateway through native OpenConnect before changing the launcher.
+Native OpenConnect did not complete authentication on the affected gateway. The existing flow succeeded with the legacy OpenSSL configuration.
 
-If native OpenConnect works, remove the unsafe OpenSSL override. GnuTLS then provides the required compatibility.
-
-If the fallback still requires OpenSSL, add an explicit legacy TLS option. Apply the override only to the authentication helper process.
+Add an explicit legacy TLS option. Apply the override only to the authentication helper process.
 
 Fix the configuration filename and installation path. Add a warning that the option lowers TLS security.
 
@@ -292,29 +225,12 @@ The README documents installation, upgrade, and removal commands.
 
 ### Phase 7: Reduce Dependencies
 
-If native authentication replaces the custom protocol, remove dependencies that no longer have callers.
-
-Likely removal candidates are:
-
-- `requests`
-- `lxml`
-- `attrs`
-- `structlog`
-- `prompt-toolkit`
-- `pyxdg`
-- `PySocks`
-- `colorama`
-- Runtime `setuptools`
-
-Keep `keyring`, `pyotp`, and `toml` while the current configuration format remains. Make PyQt6 and PyQt6-WebEngine optional dependencies for autofill mode.
-
-Use the standard library before adding replacement dependencies.
+Retain dependencies used by the working custom protocol and Qt autofill. Remove only packages that have no callers. Keep the default installation capable of automatic password and TOTP entry.
 
 ### Phase 8: Add Focused Tests and CI
 
 Add tests for these behaviors:
 
-- Parse OpenConnect authentication output.
 - Build the exact privileged command.
 - Do not restart OpenConnect after exit status 1.
 - Send the cookie only through standard input.
@@ -351,12 +267,12 @@ The stale Nix and Niv files were removed because uv is the supported installatio
 Version `0.9.0` will contain these changes:
 
 - Safety corrections for logging, hooks, and duplicate OpenConnect execution
-- A native OpenConnect authentication experiment behind an explicit option
+- A recorded native OpenConnect incompatibility for the affected gateway
 - uv project management and a valid lock
 - Linux and macOS CI for current Python versions
 - Correct fork documentation
 
-Do not do a large refactor before the real gateway test. The gateway result determines which authentication code the project can remove.
+The gateway test requires the existing authentication path. Keep the changes focused on that path and its remaining error handling.
 
 ## Deliberate Non-Goals
 
