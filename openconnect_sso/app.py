@@ -459,5 +459,5 @@ def run_openconnect(
 
 def handle_disconnect(command):
     if command:
-        logger.info("Running command on disconnect", command_line=command)
-        return subprocess.run(command, timeout=5, shell=True).returncode
+        logger.info("Running command on disconnect")
+        return subprocess.run(["/bin/sh", "-c", command], timeout=5).returncode

@@ -506,6 +506,11 @@ def test_tunnel_uses_preflight_binary():
     assert run.call_args.args[0][:2] == ["sudo", "/opt/homebrew/bin/openconnect"]
 
 
+def test_disconnect_hook_keeps_shell_syntax_and_user_identity():
+    command = f'test "$(id -u)" = "{os.getuid()}" && test "$HOME" != ""'
+    assert app.handle_disconnect(command) == 0
+
+
 def test_sudo_setup_prompt_skipped_when_only_doas_is_available():
     cfg = config.Config()
     with (

@@ -155,7 +155,7 @@ The fork still needs its own version before its first release.
 1. Remove authentication request and response bodies from logs.
 2. Replace the two OpenConnect attempts with one elevation preflight and one connection attempt.
 3. Quote the privileged `on_connect` command and document its root access.
-4. Run disconnect hooks without `shell=True`.
+4. Run disconnect hooks as the desktop user with explicit shell arguments.
 5. Correct the passwordless sudo documentation.
 6. Add regression tests for the process commands and exit status 1.
 
@@ -185,9 +185,7 @@ Use a non-destructive elevation preflight. Then invoke OpenConnect exactly once.
 
 Run `on_connect` from the vpnc script because the saved command changes system DNS configuration. Quote the command before a root shell evaluates it.
 
-Run `on_disconnect` from the desktop-user process. Preserve its current user identity.
-
-Users who need shell syntax can configure an explicit command such as `sh -c '...'`.
+Run `on_disconnect` from the desktop-user process through `/bin/sh -c`. This preserves shell syntax and does not elevate the hook.
 
 Keep passwordless setup only for users who already have administrator access. Apply these restrictions:
 
