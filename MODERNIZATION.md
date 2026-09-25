@@ -136,13 +136,13 @@ The probe uses `sudo -n -k` with OpenConnect's version command. This command ign
 
 Tunnel connections now check elevation before VPN authentication. Authentication-only runs skip the preflight. The connection code starts the tunnel once.
 
-### 10. Expected Authentication Errors Can Produce Tracebacks
+### 10. Expected Authentication Errors
 
-The application catches `AuthResponseError`, but it does not catch the base `AuthenticationError`.
+The application now catches `AuthenticationError` and reports a stable exit status without logging the gateway response.
 
-The parser also uses `assert` for protocol validation. Python removes these statements in optimized mode.
+The parser now uses explicit protocol errors instead of `assert`. It reports malformed XML, unexpected response types, missing attributes, and invalid authentication IDs.
 
-Expected protocol errors must use explicit exceptions and stable exit codes.
+Other browser and network errors keep their existing exit codes.
 
 ### 11. The Legacy TLS Launcher Is Incomplete
 

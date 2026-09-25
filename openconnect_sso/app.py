@@ -15,7 +15,11 @@ from prompt_toolkit import HTML
 from prompt_toolkit.shortcuts import radiolist_dialog
 
 from openconnect_sso import config
-from openconnect_sso.authenticator import Authenticator, AuthResponseError
+from openconnect_sso.authenticator import (
+    Authenticator,
+    AuthenticationError,
+    AuthResponseError,
+)
 from openconnect_sso.browser import Terminated
 from openconnect_sso.config import Credentials
 from openconnect_sso.profile import get_profiles
@@ -126,6 +130,9 @@ def run(args):
             "Required attributes not found in response; does this endpoint support SSO?",
             error=str(exc),
         )
+        return 3
+    except AuthenticationError as exc:
+        logger.error("VPN authentication failed", error=str(exc))
         return 3
     except RequestException as exc:
         logger.error(f"Request error: {exc}")

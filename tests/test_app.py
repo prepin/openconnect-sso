@@ -7,6 +7,7 @@ import pytest
 from requests.exceptions import Timeout
 
 from openconnect_sso import app, cli, config
+from openconnect_sso.authenticator import AuthenticationError
 from openconnect_sso.saml_authenticator import (
     BrowserAuthenticationTimeout,
     TokenCookieMissing,
@@ -58,6 +59,28 @@ def test_browser_authentication_errors_are_reported(exception, exit_code):
 
     assert result == exit_code
     error.assert_called_once_with(str(exception))
+
+
+def test_gateway_rejection_returns_authentication_error():
+    args = SimpleNamespace(log_level=logging.WARNING, authenticate=True)
+    loop = MagicMock()
+    loop.run_until_complete.side_effect = AuthenticationError(
+        "Gateway rejected authentication"
+    )
+
+    with (
+        patch("openconnect_sso.app.config.load", return_value=config.Config()),
+        patch("openconnect_sso.app.configure_logger"),
+        patch("openconnect_sso.app.asyncio.new_event_loop", return_value=loop),
+        patch("openconnect_sso.app.asyncio.set_event_loop"),
+        patch("openconnect_sso.app._run", new=lambda args, cfg: object()),
+        patch("openconnect_sso.app.logger.error") as error,
+    ):
+        assert app.run(args) == 3
+
+    error.assert_called_once_with(
+        "VPN authentication failed", error="Gateway rejected authentication"
+    )
 
 
 @pytest.mark.parametrize(

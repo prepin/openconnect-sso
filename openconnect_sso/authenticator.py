@@ -23,19 +23,12 @@ class Authenticator:
 
         response = self._start_authentication()
         if not isinstance(response, AuthRequestResponse):
-            logger.error(
-                "Could not start authentication. Invalid response type in current state",
-                response=response,
+            raise AuthenticationError(
+                "Gateway did not return an authentication request"
             )
-            raise AuthenticationError(response)
 
         if response.auth_error:
-            logger.error(
-                "Could not start authentication. Response contains error",
-                error=response.auth_error,
-                response=response,
-            )
-            raise AuthenticationError(response)
+            raise AuthenticationError("Gateway rejected authentication")
 
         auth_request_response = response
 
@@ -45,11 +38,7 @@ class Authenticator:
 
         response = self._complete_authentication(auth_request_response, sso_token)
         if not isinstance(response, AuthCompleteResponse):
-            logger.error(
-                "Could not finish authentication. Invalid response type in current state",
-                response=response,
-            )
-            raise AuthenticationError(response)
+            raise AuthenticationError("Gateway did not complete authentication")
 
         return response
 
@@ -149,18 +138,22 @@ def _create_auth_init_request(host, url, version):
 
 def parse_response(resp):
     resp.raise_for_status()
-    xml = objectify.fromstring(resp.content)
+    try:
+        xml = objectify.fromstring(resp.content)
+    except etree.XMLSyntaxError as exc:
+        raise AuthResponseError("Invalid XML authentication response") from exc
     t = xml.get("type")
     if t == "auth-request":
         return parse_auth_request_response(xml)
     elif t == "complete":
         return parse_auth_complete_response(xml)
+    raise AuthResponseError("Unexpected authentication response type")
 
 
 def parse_auth_request_response(xml):
-    assert xml.auth.get("id") == "main"
-
     try:
+        if xml.auth.get("id") != "main":
+            raise AuthResponseError("Unexpected authentication request ID")
         resp = AuthRequestResponse(
             auth_id=xml.auth.get("id"),
             auth_title=getattr(xml.auth, "title", ""),
@@ -171,8 +164,8 @@ def parse_auth_request_response(xml):
             login_final_url=xml.auth["sso-v2-login-final"],
             token_cookie_name=xml.auth["sso-v2-token-cookie-name"],
         )
-    except AttributeError as exc:
-        raise AuthResponseError(exc)
+    except (AttributeError, KeyError) as exc:
+        raise AuthResponseError("Missing authentication request attributes") from exc
 
     logger.info(
         "Response received",
@@ -196,13 +189,17 @@ class AuthRequestResponse:
 
 
 def parse_auth_complete_response(xml):
-    assert xml.auth.get("id") == "success"
-    resp = AuthCompleteResponse(
-        auth_id=xml.auth.get("id"),
-        auth_message=xml.auth.message,
-        session_token=xml["session-token"],
-        server_cert_hash=xml.config["vpn-base-config"]["server-cert-hash"],
-    )
+    try:
+        if xml.auth.get("id") != "success":
+            raise AuthResponseError("Unexpected authentication completion ID")
+        resp = AuthCompleteResponse(
+            auth_id=xml.auth.get("id"),
+            auth_message=xml.auth.message,
+            session_token=xml["session-token"],
+            server_cert_hash=xml.config["vpn-base-config"]["server-cert-hash"],
+        )
+    except (AttributeError, KeyError) as exc:
+        raise AuthResponseError("Missing authentication completion attributes") from exc
     logger.info("Response received", id=resp.auth_id, message=resp.auth_message)
     return resp
 
