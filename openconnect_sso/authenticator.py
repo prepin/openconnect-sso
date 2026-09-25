@@ -5,7 +5,6 @@ from lxml import etree, objectify
 
 from openconnect_sso.saml_authenticator import authenticate_in_browser
 
-
 logger = structlog.get_logger()
 HTTP_TIMEOUT = (10, 30)
 

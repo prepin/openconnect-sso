@@ -26,7 +26,6 @@ from PyQt6.QtWidgets import QApplication, QWidget, QSizePolicy, QVBoxLayout
 
 from openconnect_sso import config
 
-
 app = None
 profile = None
 logger = structlog.get_logger("webengine")
@@ -140,7 +139,6 @@ class Process(multiprocessing.Process):
 
 
 def on_sigterm(signum, frame):
-    global profile
     logger.info("Terminate requested.")
     # Force flush cookieStore to disk. Without this hack the cookieStore may
     # not be synced at all if the browser lives only for a short amount of
@@ -221,8 +219,7 @@ class WebBrowser(QWebEngineView):
                 script = QWebEngineScript()
                 script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
                 script.setWorldId(QWebEngineScript.ScriptWorldId.ApplicationWorld)
-                script.setSourceCode(
-                    f"""
+                script.setSourceCode(f"""
 // ==UserScript==
 // @include {url_pattern}
 // ==/UserScript==
@@ -243,8 +240,7 @@ function autoFill() {{
     setTimeout(autoFill, delay);
 }}
 autoFill();
-"""
-                )
+""")
                 self.page().scripts().insert(script)
 
         self.load(QUrl(url))
@@ -328,8 +324,7 @@ def get_selectors(rules, credentials):
             cred_value = getattr(credentials, rule.fill, None)
             value = json.dumps(cred_value)
             if cred_value:
-                fill_statements.append(
-                    f"""(function() {{
+                fill_statements.append(f"""(function() {{
     try {{
     var selectorKey = {selector};
     if (window.autoFillFilledFields.has(selectorKey)) return;
@@ -359,8 +354,7 @@ def get_selectors(rules, credentials):
         if (elem.value) window.autoFillFilledFields.add(selectorKey);
     }}
     }} catch(e) {{ console.error('[AutoFill] Error:', {selector}, e); }}
-}})();"""
-                )
+}})();""")
             else:
                 logger.warning(
                     "Credential info not available",
@@ -368,8 +362,7 @@ def get_selectors(rules, credentials):
                     possibilities=dir(credentials),
                 )
         elif rule.action == "click":
-            click_statements.append(
-                f"""(function() {{
+            click_statements.append(f"""(function() {{
     try {{
     if (window.autoFillButtonClicked) return;
 
@@ -403,8 +396,7 @@ def get_selectors(rules, credentials):
         buttons[0].click();
     }}
     }} catch(e) {{ console.error('[AutoFill] Error:', {selector}, e); }}
-}})();"""
-            )
+}})();""")
     result = "\n".join(fill_statements + click_statements)
     return result
 
@@ -425,8 +417,7 @@ def fill_totp(page, selector, credentials):
     if not value:
         return
 
-    page.runJavaScript(
-        f"""(() => {{
+    page.runJavaScript(f"""(() => {{
     var elem = document.querySelector({json.dumps(selector)});
     if (!elem || elem.value) return;
     elem.focus();
@@ -435,5 +426,4 @@ def fill_totp(page, selector, credentials):
     elem.dispatchEvent(new Event('input', {{bubbles: true}}));
     elem.dispatchEvent(new Event('change', {{bubbles: true}}));
     elem.dispatchEvent(new Event('blur', {{bubbles: true}}));
-}})()"""
-    )
+}})()""")
