@@ -8,6 +8,7 @@ from requests.exceptions import Timeout
 
 from openconnect_sso import app, cli, config
 from openconnect_sso.authenticator import AuthenticationError
+from openconnect_sso.browser import PageLoadError
 from openconnect_sso.saml_authenticator import (
     BrowserAuthenticationTimeout,
     TokenCookieMissing,
@@ -39,6 +40,7 @@ def test_request_timeout_returns_network_error():
     (
         (BrowserAuthenticationTimeout(600), 5),
         (TokenCookieMissing("sso-token"), 6),
+        (PageLoadError("Browser failed to load a page"), 7),
     ),
 )
 def test_browser_authentication_errors_are_reported(exception, exit_code):

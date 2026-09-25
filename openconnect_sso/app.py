@@ -20,7 +20,7 @@ from openconnect_sso.authenticator import (
     AuthenticationError,
     AuthResponseError,
 )
-from openconnect_sso.browser import Terminated
+from openconnect_sso.browser import PageLoadError, Terminated
 from openconnect_sso.config import Credentials
 from openconnect_sso.profile import get_profiles
 from openconnect_sso.saml_authenticator import (
@@ -143,6 +143,9 @@ def run(args):
     except TokenCookieMissing as exc:
         logger.error(str(exc))
         return 6
+    except PageLoadError as exc:
+        logger.error(str(exc))
+        return 7
 
     config.save(cfg)
 

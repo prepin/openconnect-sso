@@ -72,13 +72,13 @@ This request does not use the explicit proxy or session cookies. No authenticati
 
 A direct request can bypass the required proxy. A stalled request can also block the process without a time limit.
 
-### 5. Browser Completion Can Wait Forever
+### 5. Browser Completion and Load Failures
 
-`openconnect_sso/saml_authenticator.py:12-16` requires exact equality with the final URL. The wait has no timeout.
+The browser wait has a deadline. It now compares the final URL by scheme, host, port, and path. Query strings, fragments, and trailing slashes do not block completion.
 
-Fragments, query parameters, trailing slashes, failed page loads, and provider changes can prevent completion.
+The browser reports failed main-page loads as authentication errors. Stopped navigations can continue to a later page.
 
-The browser stores cookies only by name. It discards the cookie domain, path, expiry, and security attributes.
+Cookie selection uses the cookie name, domain, and path for the gateway URL.
 
 ### 6. TOTP Can Expire Before Use
 
@@ -171,7 +171,7 @@ No cookie was returned. The experiment did not start a privileged tunnel or writ
 
 Keep the custom protocol flow and PyQt browser for this gateway. HTTP timeouts, explicit protocol errors, the browser deadline, domain-aware cookies, fresh TOTP, and secret-free logs are in place.
 
-The final-URL comparison still needs normalization. Page-load failures still need explicit error reporting.
+The browser now normalizes final URLs and reports page-load failures. It does not log browser state objects that contain session cookies.
 
 ### Phase 3: Preserve Automatic Browser Entry
 

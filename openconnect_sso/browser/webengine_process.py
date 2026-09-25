@@ -15,7 +15,12 @@ except ImportError:
 
 from PyQt6.QtCore import QUrl, QTimer, pyqtSlot, Qt
 from PyQt6.QtNetwork import QNetworkCookie, QNetworkProxy
-from PyQt6.QtWebEngineCore import QWebEngineScript, QWebEngineProfile, QWebEnginePage
+from PyQt6.QtWebEngineCore import (
+    QWebEngineLoadingInfo,
+    QWebEngineScript,
+    QWebEngineProfile,
+    QWebEnginePage,
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import QApplication, QWidget, QSizePolicy, QVBoxLayout
 
@@ -30,6 +35,11 @@ logger = structlog.get_logger("webengine")
 @attr.s
 class Url:
     url = attr.ib()
+
+
+@attr.s
+class LoadFailed:
+    pass
 
 
 @attr.s
@@ -111,9 +121,9 @@ class Process(multiprocessing.Process):
         web = WebBrowser(cfg.auto_fill_rules, self._states.put, profile)
 
         startup_info = self._commands.get()
-        logger.info("Browser started", startup_info=startup_info)
+        logger.info("Browser started")
 
-        logger.info("Loading page", url=startup_info.url)
+        logger.info("Loading page")
 
         web.authenticate_at(QUrl(startup_info.url), startup_info.credentials)
 
@@ -177,6 +187,7 @@ class WebBrowser(QWebEngineView):
         cookie_store = self.page().profile().cookieStore()
         cookie_store.cookieAdded.connect(self._on_cookie_added)
         self.page().loadFinished.connect(self._on_load_finished)
+        self.page().loadingChanged.connect(self._on_loading_changed)
 
     def createWindow(self, type):
         if type == QWebEnginePage.WebDialog:
@@ -192,7 +203,7 @@ class WebBrowser(QWebEngineView):
         self.page().scripts().insert(script)
 
         if credentials:
-            logger.info("Initiating autologin", cred=credentials)
+            logger.info("Initiating autologin")
             totp_selectors = [
                 rule.selector
                 for rules in self._auto_fill_rules.values()
@@ -255,10 +266,12 @@ autoFill();
         )
 
     def _on_load_finished(self, success):
-        url = self.page().url().toString()
-        logger.debug("Page loaded", url=url)
+        if success:
+            self._on_update(Url(self.page().url().toString()))
 
-        self._on_update(Url(url))
+    def _on_loading_changed(self, info):
+        if info.status() == QWebEngineLoadingInfo.LoadStatus.LoadFailedStatus:
+            self._on_update(LoadFailed())
 
 
 class WebPopupWindow(QWidget):

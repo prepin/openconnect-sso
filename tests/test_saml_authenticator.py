@@ -4,19 +4,23 @@ from unittest.mock import patch
 
 import pytest
 
-from openconnect_sso.browser import Terminated
+from openconnect_sso.browser import PageLoadError, Terminated
 from openconnect_sso.saml_authenticator import (
     BrowserAuthenticationTimeout,
     TokenCookieMissing,
     authenticate_in_browser,
+    same_final_url,
 )
 
 
 class FakeBrowser:
-    def __init__(self, final_url=None, cookies=None, cookie_error=None):
+    def __init__(
+        self, final_url=None, cookies=None, cookie_error=None, load_error=None
+    ):
         self.final_url = final_url
         self.cookies = cookies or {}
         self.cookie_error = cookie_error
+        self.load_error = load_error
         self.url = None
         self.closed = False
 
@@ -30,6 +34,8 @@ class FakeBrowser:
         pass
 
     async def page_loaded(self):
+        if self.load_error:
+            raise self.load_error
         if self.final_url:
             self.url = self.final_url
         else:
@@ -109,4 +115,35 @@ async def test_browser_closure_while_waiting_for_cookie_is_reported():
     ):
         await authenticate_in_browser(None, auth_info(), None, None)
 
+    assert browser.closed is True
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected", "matches"),
+    (
+        (
+            "https://VPN.EXAMPLE.COM/final/?ticket=123#done",
+            "https://vpn.example.com/final",
+            True,
+        ),
+        ("https://vpn.example.com:443/final", "https://vpn.example.com/final/", True),
+        ("https://vpn.example.com/final-extra", "https://vpn.example.com/final", False),
+        ("https://login.example.com/final", "https://vpn.example.com/final", False),
+        ("http://vpn.example.com/final", "https://vpn.example.com/final", False),
+        ("https://vpn.example.com:8443/final", "https://vpn.example.com/final", False),
+        ("https://vpn.example.com:bad/final", "https://vpn.example.com/final", False),
+    ),
+)
+def test_final_url_normalization(actual, expected, matches):
+    assert same_final_url(actual, expected) is matches
+
+
+@pytest.mark.asyncio
+async def test_browser_load_failure_is_reported_and_browser_closes():
+    browser = FakeBrowser(load_error=PageLoadError("Browser failed to load a page"))
+    with (
+        patch("openconnect_sso.saml_authenticator.Browser", return_value=browser),
+        pytest.raises(PageLoadError, match="Browser failed"),
+    ):
+        await authenticate_in_browser(None, auth_info(), None, None)
     assert browser.closed is True

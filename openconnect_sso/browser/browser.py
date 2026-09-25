@@ -49,10 +49,12 @@ class Browser:
                 await self._urls.put(None)
                 await self._cookie_updates.put(None)
                 return
-            logger.debug("Message received from browser", message=state)
+            logger.debug("Message received from browser")
 
             if isinstance(state, web.Url):
                 await self._urls.put(state.url)
+            elif isinstance(state, web.LoadFailed):
+                await self._urls.put(state)
             elif isinstance(state, web.SetCookie):
                 key = (state.name, state.domain.lower(), state.path or "/")
                 self.cookies[key] = state.value
@@ -68,6 +70,8 @@ class Browser:
         rv = await self._urls.get()
         if not self.running:
             raise Terminated()
+        if isinstance(rv, web.LoadFailed):
+            raise PageLoadError("Browser failed to load a page")
         self.url = rv
 
     async def wait_for_cookie(self, name, url=None):
@@ -106,6 +110,10 @@ class Browser:
 
 
 class Terminated(Exception):
+    pass
+
+
+class PageLoadError(Exception):
     pass
 
 

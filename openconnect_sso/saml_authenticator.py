@@ -1,4 +1,5 @@
 import asyncio
+from urllib.parse import urlsplit
 
 import structlog
 
@@ -41,9 +42,30 @@ async def authenticate_in_browser(
 
 
 async def _wait_for_final_url(browser, final_url):
-    while browser.url != final_url:
+    while not same_final_url(browser.url, final_url):
         await browser.page_loaded()
-        log.debug("Browser loaded page", url=browser.url)
+        log.debug("Browser loaded page")
+
+
+def same_final_url(actual, expected):
+    if not actual:
+        return False
+    try:
+        actual_url, expected_url = urlsplit(actual), urlsplit(expected)
+        return (
+            actual_url.scheme.lower() == expected_url.scheme.lower()
+            and actual_url.hostname is not None
+            and actual_url.hostname == expected_url.hostname
+            and (actual_url.port or default_port(actual_url.scheme))
+            == (expected_url.port or default_port(expected_url.scheme))
+            and actual_url.path.rstrip("/") == expected_url.path.rstrip("/")
+        )
+    except ValueError:
+        return False
+
+
+def default_port(scheme):
+    return {"https": 443, "http": 80}.get(scheme.lower())
 
 
 class BrowserAuthenticationTimeout(Exception):
