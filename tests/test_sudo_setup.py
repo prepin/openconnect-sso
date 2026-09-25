@@ -89,10 +89,15 @@ class TestCheckSudoersConfigured:
         """Test when sudoers is configured."""
         with (
             patch("shutil.which", return_value=mock_openconnect_path),
-            patch("subprocess.run", return_value=MagicMock(returncode=0)),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)) as run,
         ):
             result = sudo_setup.check_sudoers_configured()
             assert result is True
+        run.assert_called_once_with(
+            ["sudo", "-n", "-k", mock_openconnect_path, "--version"],
+            capture_output=True,
+            timeout=5,
+        )
 
     def test_not_configured(self, mock_openconnect_path):
         """Test when sudoers is not configured."""
@@ -108,6 +113,19 @@ class TestCheckSudoersConfigured:
         with patch("shutil.which", return_value=None):
             result = sudo_setup.check_sudoers_configured()
             assert result is False
+
+    def test_sudo_not_found(self, mock_openconnect_path):
+        with (
+            patch(
+                "shutil.which",
+                side_effect=lambda program: (
+                    mock_openconnect_path if program == "openconnect" else None
+                ),
+            ),
+            patch("subprocess.run") as run,
+        ):
+            assert sudo_setup.check_sudoers_configured() is False
+        run.assert_not_called()
 
 
 class TestSetupSudoers:

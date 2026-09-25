@@ -170,7 +170,15 @@ def test_connect_hook_runs_after_vpnc_script():
     ) in wrapper
 
 
-def test_openconnect_exit_one_does_not_retry():
+@pytest.mark.parametrize(
+    ("available", "elevator"),
+    (
+        (("sudo", "doas"), "sudo"),
+        (("sudo",), "sudo"),
+        (("doas",), "doas"),
+    ),
+)
+def test_openconnect_exit_one_does_not_retry(available, elevator):
     auth_info = SimpleNamespace(
         session_token="vpn-token", server_cert_hash="sha256:fingerprint"
     )
@@ -179,7 +187,9 @@ def test_openconnect_exit_one_does_not_retry():
     with (
         patch(
             "openconnect_sso.app.shutil.which",
-            side_effect=lambda program: "/usr/bin/sudo" if program == "sudo" else None,
+            side_effect=lambda program: (
+                f"/usr/bin/{program}" if program in available else None
+            ),
         ),
         patch("openconnect_sso.app.subprocess.run") as run,
     ):
@@ -190,7 +200,7 @@ def test_openconnect_exit_one_does_not_retry():
     assert result == 1
     run.assert_called_once_with(
         [
-            "sudo",
+            elevator,
             "openconnect",
             "--useragent",
             "AnyConnect Linux_64 4.7.00136",
@@ -203,3 +213,26 @@ def test_openconnect_exit_one_does_not_retry():
         ],
         input=b"vpn-token",
     )
+
+
+def test_sudo_setup_prompt_skipped_when_only_doas_is_available():
+    cfg = config.Config()
+    with (
+        patch(
+            "openconnect_sso.app.shutil.which",
+            side_effect=lambda program: "/usr/bin/doas" if program == "doas" else None,
+        ),
+        patch("openconnect_sso.sudo_setup.check_sudoers_configured") as check,
+    ):
+        assert app.should_prompt_sudo_setup(cfg) is False
+    check.assert_not_called()
+
+
+def test_sudo_setup_command_requires_sudo(capsys):
+    with (
+        patch("openconnect_sso.cli.shutil.which", return_value=None),
+        patch("openconnect_sso.sudo_setup.check_sudoers_configured") as check,
+    ):
+        assert cli.setup_sudo_configuration() == 1
+    check.assert_not_called()
+    assert "sudo not found in PATH" in capsys.readouterr().out

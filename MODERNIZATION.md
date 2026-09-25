@@ -128,13 +128,13 @@ The users of this fork already have administrator access. The feature can remain
 
 The documentation must not describe the rule as a secure VPN-only permission. The setup code must also reject a user-writable OpenConnect binary.
 
-### 9. Sudo and Doas Behavior Does Not Match
+### 9. Sudo and Doas Behavior
 
-The connection code prefers `doas`, but the setup code always configures and probes `sudo`.
+The connection code now prefers `sudo` when it is available. It uses `doas` on a doas-only system. The setup code only offers passwordless sudo when `sudo` is available.
 
-The probe can also succeed because of a cached sudo session. That result does not prove that a `NOPASSWD` rule exists.
+The probe uses `sudo -n -k` with OpenConnect's version command. This command ignores cached sudo credentials and does not update them.
 
-Setup and connection code must use the same elevation program. A preflight must occur before the one real OpenConnect invocation.
+A privilege preflight before VPN authentication is still pending. The connection code must start the tunnel only once.
 
 ### 10. Expected Authentication Errors Can Produce Tracebacks
 

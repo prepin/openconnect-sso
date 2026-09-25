@@ -40,8 +40,8 @@ def should_prompt_sudo_setup(cfg):
     if cfg.sudo_configured or cfg.sudo_setup_dismissed:
         return False
 
-    # Don't prompt on Windows
-    if os.name == "nt":
+    # Don't offer sudo setup if sudo cannot run
+    if os.name == "nt" or not shutil.which("sudo"):
         return False
 
     # Check if already working
@@ -299,7 +299,7 @@ def create_vpnc_wrapper(on_connect_command):
 
 
 def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
-    as_root = next(([prog] for prog in ("doas", "sudo") if shutil.which(prog)), [])
+    as_root = next(([prog] for prog in ("sudo", "doas") if shutil.which(prog)), [])
     try:
         if not as_root:
             if os.name == "nt":

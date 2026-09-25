@@ -4,6 +4,7 @@ import argparse
 import enum
 import logging
 import os
+import shutil
 import sys
 
 import openconnect_sso
@@ -168,6 +169,10 @@ def setup_sudo_configuration():
         setup_sudoers,
         check_sudoers_configured,
     )
+
+    if not shutil.which("sudo"):
+        print("✗ sudo not found in PATH; install sudo before using --setup-sudo")
+        return 1
 
     # Check if already configured
     if check_sudoers_configured():

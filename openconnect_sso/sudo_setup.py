@@ -32,15 +32,17 @@ def get_platform():
 
 def check_sudoers_configured():
     """Check if passwordless sudo is already configured for openconnect."""
+    if not shutil.which("sudo"):
+        return False
+
     try:
         openconnect_path = get_openconnect_path()
     except FileNotFoundError:
         return False
 
-    # Try to run sudo -n openconnect --version
-    # If it succeeds without password prompt, it's configured
+    # Ignore cached credentials so a previous sudo login cannot mask a missing rule.
     result = subprocess.run(
-        ["sudo", "-n", openconnect_path, "--version"],
+        ["sudo", "-n", "-k", openconnect_path, "--version"],
         capture_output=True,
         timeout=5,
     )
