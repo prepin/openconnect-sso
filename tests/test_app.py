@@ -397,3 +397,24 @@ def test_sudo_setup_command_requires_sudo(capsys):
         assert cli.setup_sudo_configuration() == 1
     check.assert_not_called()
     assert "sudo not found in PATH" in capsys.readouterr().out
+
+
+def test_sudo_setup_does_not_claim_success_if_rule_is_inactive(capsys):
+    with (
+        patch("openconnect_sso.cli.shutil.which", return_value="/usr/bin/sudo"),
+        patch(
+            "openconnect_sso.sudo_setup.check_sudoers_configured",
+            side_effect=[False, False],
+        ) as check,
+        patch(
+            "openconnect_sso.sudo_setup.get_openconnect_path",
+            return_value="/usr/bin/openconnect",
+        ),
+        patch("openconnect_sso.sudo_setup.setup_sudoers", return_value=True),
+        patch("openconnect_sso.cli.config.save") as save,
+    ):
+        assert cli.setup_sudo_configuration() == 1
+
+    assert check.call_count == 2
+    save.assert_not_called()
+    assert "passwordless OpenConnect is not active" in capsys.readouterr().out

@@ -1,7 +1,9 @@
 import os
 import pytest
+import stat
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 
 from openconnect_sso import sudo_setup
@@ -128,17 +130,64 @@ class TestCheckSudoersConfigured:
         run.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("system", "owner", "mode", "allowed"),
+    (
+        ("linux", 0, stat.S_IFREG | 0o755, True),
+        ("linux", 1234, stat.S_IFREG | 0o755, False),
+        ("darwin", os.getuid(), stat.S_IFREG | 0o755, True),
+        ("darwin", os.getuid() + 1, stat.S_IFREG | 0o755, False),
+        ("darwin", os.getuid(), stat.S_IFREG | 0o775, False),
+        ("linux", 0, stat.S_IFDIR | 0o755, False),
+        ("linux", 0, stat.S_IFREG | 0o644, False),
+    ),
+)
+def test_sudo_binary_validation(tmp_path, system, owner, mode, allowed):
+    binary = tmp_path / "openconnect"
+    binary.write_text("binary")
+    link = tmp_path / "openconnect-link"
+    link.symlink_to(binary)
+
+    with patch(
+        "pathlib.Path.stat", return_value=SimpleNamespace(st_uid=owner, st_mode=mode)
+    ):
+        if allowed:
+            assert sudo_setup.validate_openconnect_binary(link, system) == str(binary)
+        else:
+            with pytest.raises(ValueError, match="OpenConnect"):
+                sudo_setup.validate_openconnect_binary(link, system)
+
+
 class TestSetupSudoers:
     """Test setup_sudoers function."""
 
-    @patch.dict(os.environ, {"USER": "testuser"})
+    @pytest.fixture(autouse=True)
+    def setup_input(self):
+        with (
+            patch(
+                "openconnect_sso.sudo_setup.pwd.getpwuid",
+                return_value=SimpleNamespace(pw_name="testuser"),
+            ),
+            patch(
+                "openconnect_sso.sudo_setup.validate_openconnect_binary",
+                side_effect=lambda path, system: path,
+            ),
+        ):
+            yield
+
+    @patch.dict(os.environ, {"USER": "somebody-else"})
     def test_linux_success(self, mock_openconnect_path, mock_linux_platform):
         """Test successful Linux setup."""
-        with patch("openconnect_sso.sudo_setup._write_sudoers_file", return_value=True):
+        with patch(
+            "openconnect_sso.sudo_setup._write_sudoers_file", return_value=True
+        ) as write:
             result = sudo_setup.setup_sudoers(mock_openconnect_path)
             assert result is True
+        write.assert_called_once_with(
+            Path("/etc/sudoers.d/openconnect-sso"),
+            "testuser ALL=(ALL) NOPASSWD: /usr/bin/openconnect\n",
+        )
 
-    @patch.dict(os.environ, {"USER": "testuser"})
     def test_linux_failure(self, mock_openconnect_path, mock_linux_platform):
         """Test failed Linux setup."""
         with patch(
@@ -148,33 +197,33 @@ class TestSetupSudoers:
             with pytest.raises(RuntimeError, match="Failed"):
                 sudo_setup.setup_sudoers(mock_openconnect_path)
 
-    @patch.dict(os.environ, {"USER": "testuser"})
     def test_macos_with_sudoers_d(self, mock_openconnect_path, mock_macos_platform):
         """Test macOS setup with sudoers.d support."""
         with (
-            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.is_dir", return_value=True),
             patch("openconnect_sso.sudo_setup._write_sudoers_file", return_value=True),
         ):
             result = sudo_setup.setup_sudoers(mock_openconnect_path)
             assert result is True
 
-    @patch.dict(os.environ, {"USER": "testuser"})
     def test_macos_without_sudoers_d(self, mock_openconnect_path, mock_macos_platform):
         """Test macOS setup without sudoers.d support."""
         with (
-            patch("pathlib.Path.exists", return_value=False),
-            patch(
-                "openconnect_sso.sudo_setup._append_to_main_sudoers", return_value=True
-            ),
+            patch("pathlib.Path.is_dir", return_value=False),
+            patch("openconnect_sso.sudo_setup._write_sudoers_file") as write,
         ):
-            result = sudo_setup.setup_sudoers(mock_openconnect_path)
-            assert result is True
+            with pytest.raises(RuntimeError, match="/etc/sudoers.d is missing"):
+                sudo_setup.setup_sudoers(mock_openconnect_path)
+        write.assert_not_called()
 
-    @patch.dict(os.environ, {}, clear=True)
     def test_no_username(self, mock_openconnect_path, mock_linux_platform):
         """Test when username cannot be determined."""
-        with pytest.raises(ValueError, match="Cannot determine username"):
-            sudo_setup.setup_sudoers(mock_openconnect_path)
+        with patch(
+            "openconnect_sso.sudo_setup.pwd.getpwuid",
+            return_value=SimpleNamespace(pw_name=""),
+        ):
+            with pytest.raises(ValueError, match="Cannot determine username"):
+                sudo_setup.setup_sudoers(mock_openconnect_path)
 
 
 class TestWriteSudoersFile:
@@ -239,11 +288,16 @@ class TestRemoveSudoers:
             result = sudo_setup.remove_sudoers()
             assert result is True
 
-    def test_openconnect_not_found(self, mock_linux_platform):
-        """Test when openconnect is not found."""
-        with patch("shutil.which", return_value=None):
-            result = sudo_setup.remove_sudoers()
-            assert result is True
+    def test_removal_does_not_require_openconnect(self, mock_linux_platform):
+        with (
+            patch("shutil.which", return_value=None),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("subprocess.run", return_value=MagicMock(returncode=0)) as run,
+        ):
+            assert sudo_setup.remove_sudoers() is True
+        run.assert_called_once_with(
+            ["sudo", "rm", "/etc/sudoers.d/openconnect-sso"], capture_output=True
+        )
 
     def test_macos_with_sudoers_d(self, mock_openconnect_path, mock_macos_platform):
         """Test removal on macOS with sudoers.d support."""
@@ -258,10 +312,15 @@ class TestRemoveSudoers:
         """Test removal on macOS without sudoers.d support."""
         with (
             patch("pathlib.Path.exists", return_value=False),
-            patch(
-                "openconnect_sso.sudo_setup._remove_from_main_sudoers",
-                return_value=True,
-            ),
+            patch("pathlib.Path.is_dir", return_value=False),
+            patch("subprocess.run") as run,
         ):
-            result = sudo_setup.remove_sudoers()
-            assert result is True
+            assert sudo_setup.remove_sudoers() is False
+        run.assert_not_called()
+
+    def test_macos_without_rule(self, mock_macos_platform):
+        with (
+            patch("pathlib.Path.exists", return_value=False),
+            patch("pathlib.Path.is_dir", return_value=True),
+        ):
+            assert sudo_setup.remove_sudoers() is True

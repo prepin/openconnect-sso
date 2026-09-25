@@ -202,6 +202,11 @@ def setup_sudo_configuration():
     # Setup sudoers
     try:
         if setup_sudoers(openconnect_path):
+            if not check_sudoers_configured():
+                print(
+                    "✗ sudoers file created, but passwordless OpenConnect is not active"
+                )
+                return 1
             print("✓ Configuration successful")
             print()
             print("You can now connect to VPN without entering your sudo password.")

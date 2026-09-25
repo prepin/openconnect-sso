@@ -1,5 +1,7 @@
 import os
+import pwd
 import shutil
+import stat
 import subprocess
 import structlog
 import platform
@@ -50,11 +52,24 @@ def check_sudoers_configured():
     return result.returncode == 0
 
 
+def validate_openconnect_binary(openconnect_path, system):
+    """Validate the executable before granting it passwordless sudo."""
+    binary = Path(openconnect_path).resolve(strict=True)
+    metadata = binary.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:
+        raise ValueError(f"OpenConnect is not an executable file: {binary}")
+    if metadata.st_mode & 0o022:
+        raise ValueError(f"OpenConnect is writable by group or others: {binary}")
+    if metadata.st_uid not in ({0} if system == "linux" else {0, os.getuid()}):
+        raise ValueError(f"OpenConnect has an unexpected owner: {binary}")
+    return str(binary)
+
+
 def setup_sudoers(openconnect_path):
     """Configure passwordless sudo for openconnect."""
     system = get_platform()
-    username = os.getenv("USER") or os.getenv("USERNAME")
-
+    openconnect_path = validate_openconnect_binary(openconnect_path, system)
+    username = pwd.getpwuid(os.getuid()).pw_name
     if not username:
         raise ValueError("Cannot determine username")
 
@@ -64,13 +79,10 @@ def setup_sudoers(openconnect_path):
         sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
         return _write_sudoers_file(sudoers_file, sudoers_content)
     elif system == "darwin":
-        # macOS 10.13+ supports /etc/sudoers.d/
         sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
-        if sudoers_file.parent.exists():
+        if sudoers_file.parent.is_dir():
             return _write_sudoers_file(sudoers_file, sudoers_content)
-        else:
-            # Fallback to main sudoers file
-            return _append_to_main_sudoers(sudoers_content)
+        raise RuntimeError("/etc/sudoers.d is missing; configure sudoers with visudo")
     else:
         raise ValueError(f"Unsupported platform: {system}")
 
@@ -152,215 +164,21 @@ def _write_sudoers_file(sudoers_file, content):
             pass
 
 
-def _append_to_main_sudoers(content):
-    """Append sudoers configuration to main sudoers file."""
-    import subprocess
-    import tempfile
-
-    # Read current sudoers
-    result = subprocess.run(
-        ["sudo", "cat", "/etc/sudoers"],
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        logger.error(
-            "Failed to read sudoers file",
-            stderr=result.stderr,
-        )
-        raise RuntimeError(f"Failed to read sudoers file: {result.stderr}")
-
-    current_sudoers = result.stdout
-
-    # Check if already configured
-    if "openconnect" in current_sudoers:
-        logger.info("Sudoers already configured for openconnect")
-        return True
-
-    # Create temp file with new content
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".sudoers", delete=False) as tmp:
-        tmp.write(current_sudoers)
-        tmp.write(f"\n# openconnect-sso passwordless sudo\n{content}")
-        tmp.flush()
-        tmp_path = tmp.name
-
-    try:
-        # Validate
-        result = subprocess.run(
-            ["visudo", "-c", "-f", tmp_path],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "Sudoers validation failed",
-                output=result.stdout,
-                errors=result.stderr,
-            )
-            raise RuntimeError(f"Sudoers validation failed: {result.stderr}")
-
-        # Install using visudo
-        result = subprocess.run(
-            ["sudo", "cp", tmp_path, "/etc/sudoers"],
-            capture_output=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "Failed to update sudoers file",
-                stderr=result.stderr,
-            )
-            raise RuntimeError(f"Failed to update sudoers file: {result.stderr}")
-
-        logger.info("Sudoers file updated successfully")
-        return True
-
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-
 def remove_sudoers():
     """Remove passwordless sudo configuration for openconnect."""
-    import subprocess
-
     system = get_platform()
-
-    try:
-        openconnect_path = get_openconnect_path()
-    except FileNotFoundError:
-        logger.warn("openconnect not found, skipping sudoers removal")
+    sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
+    if not sudoers_file.exists():
+        if system == "darwin" and not sudoers_file.parent.is_dir():
+            logger.error(
+                "Remove any legacy openconnect-sso rule from /etc/sudoers with visudo"
+            )
+            return False
         return True
 
-    if system == "linux":
-        sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
-        if sudoers_file.exists():
-            result = subprocess.run(
-                ["sudo", "rm", str(sudoers_file)],
-                capture_output=True,
-            )
-
-            if result.returncode != 0:
-                logger.error(
-                    "Failed to remove sudoers file",
-                    stderr=result.stderr.decode("utf-8"),
-                )
-                return False
-
-            logger.info("Sudoers file removed successfully")
-            return True
-        else:
-            logger.info("Sudoers file does not exist")
-            return True
-
-    elif system == "darwin":
-        sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
-        if sudoers_file.parent.exists() and sudoers_file.exists():
-            result = subprocess.run(
-                ["sudo", "rm", str(sudoers_file)],
-                capture_output=True,
-            )
-
-            if result.returncode != 0:
-                logger.error(
-                    "Failed to remove sudoers file",
-                    stderr=result.stderr.decode("utf-8"),
-                )
-                return False
-
-            logger.info("Sudoers file removed successfully")
-            return True
-        else:
-            # Need to remove from main sudoers file
-            return _remove_from_main_sudoers(openconnect_path)
-
-    return False
-
-
-def _remove_from_main_sudoers(openconnect_path):
-    """Remove openconnect entry from main sudoers file."""
-    import subprocess
-    import tempfile
-
-    # Read current sudoers
-    result = subprocess.run(
-        ["sudo", "cat", "/etc/sudoers"],
-        capture_output=True,
-        text=True,
-    )
-
+    result = subprocess.run(["sudo", "rm", str(sudoers_file)], capture_output=True)
     if result.returncode != 0:
-        logger.error(
-            "Failed to read sudoers file",
-            stderr=result.stderr,
-        )
+        logger.error("Failed to remove sudoers file", stderr=result.stderr.decode())
         return False
-
-    current_sudoers = result.stdout
-
-    # Remove openconnect-sso entry
-    lines = []
-    skip_next = False
-    for line in current_sudoers.splitlines():
-        if "# openconnect-sso passwordless sudo" in line:
-            skip_next = True
-            continue
-        if skip_next:
-            skip_next = False
-            continue
-        lines.append(line)
-
-    new_sudoers = "\n".join(lines)
-
-    # Check if anything changed
-    if new_sudoers == current_sudoers:
-        logger.info("No sudoers entry to remove")
-        return True
-
-    # Create temp file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".sudoers", delete=False) as tmp:
-        tmp.write(new_sudoers)
-        tmp.flush()
-        tmp_path = tmp.name
-
-    try:
-        # Validate
-        result = subprocess.run(
-            ["visudo", "-c", "-f", tmp_path],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "Sudoers validation failed",
-                output=result.stdout,
-                errors=result.stderr,
-            )
-            return False
-
-        # Install
-        result = subprocess.run(
-            ["sudo", "cp", tmp_path, "/etc/sudoers"],
-            capture_output=True,
-        )
-
-        if result.returncode != 0:
-            logger.error(
-                "Failed to update sudoers file",
-                stderr=result.stderr,
-            )
-            return False
-
-        logger.info("Sudoers entry removed successfully")
-        return True
-
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    logger.info("Sudoers file removed successfully")
+    return True

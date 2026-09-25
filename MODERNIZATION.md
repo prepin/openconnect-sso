@@ -126,7 +126,7 @@ OpenConnect accepts `--script`. Therefore, this rule can provide arbitrary root 
 
 The users of this fork already have administrator access. The feature can remain as a convenience for those users.
 
-The documentation must not describe the rule as a secure VPN-only permission. The setup code must also reject a user-writable OpenConnect binary.
+The documentation must not describe the rule as a secure VPN-only permission. Linux setup requires a root-owned binary. macOS setup permits the current administrator's Homebrew binary. Neither accepts group- or world-writable executables.
 
 ### 9. Sudo and Doas Behavior
 
@@ -257,11 +257,11 @@ Users who need shell syntax can configure an explicit command such as `sh -c '..
 Keep passwordless setup only for users who already have administrator access. Apply these restrictions:
 
 - Resolve the absolute OpenConnect path.
-- Require a root-owned binary.
-- Reject a group-writable or user-writable binary.
+- Require a root-owned binary on Linux. Permit the current user's Homebrew binary on macOS.
+- Reject group- or world-writable executables on both platforms.
 - Use the same elevation program for setup and connection.
 - Use `visudo` for syntax validation.
-- Do not rewrite the main macOS sudoers file.
+- Do not rewrite the main macOS sudoers file. Ask for manual setup if `/etc/sudoers.d` is missing.
 - Describe the rule as convenience, not restricted privilege.
 
 ### Phase 5: Preserve Legacy Gateway Access

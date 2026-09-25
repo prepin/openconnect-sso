@@ -100,6 +100,12 @@ administrator access. OpenConnect accepts arbitrary arguments. Its `--script`
 option can execute commands as root. This sudo rule does not grant VPN-only
 access.
 
+On Linux, automatic setup requires a root-owned OpenConnect executable. On
+macOS, it also accepts an executable owned by the current user for Homebrew
+installations. It rejects executables that a group or any other user can edit.
+Automatic setup on macOS requires `/etc/sudoers.d`. If this directory is
+missing, configure the rule manually with `sudo visudo`.
+
 Remove the rule with this command:
 
 ```shell
