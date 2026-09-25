@@ -16,7 +16,6 @@ classifiers = [
 ]
 dependencies = [
     "attrs>=18.2",
-    "colorama>=0.4,<0.5",
     "lxml>=5,<7",
     "keyring>=21.1",
     "prompt-toolkit>=3.0.3,<4",
@@ -24,7 +23,6 @@ dependencies = [
     "requests>=2.22,<3",
     "structlog>=20.1",
     "toml>=0.10,<0.11",
-    "setuptools>75.0",
     "PySocks>=1.7.1,<2",
     "PyQt6>=6.3,<7",
     "PyQt6-WebEngine>=6.3,<7",
