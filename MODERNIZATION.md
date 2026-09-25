@@ -134,7 +134,7 @@ The connection code now prefers `sudo` when it is available. It uses `doas` on a
 
 The probe uses `sudo -n -k` with OpenConnect's version command. This command ignores cached sudo credentials and does not update them.
 
-A privilege preflight before VPN authentication is still pending. The connection code must start the tunnel only once.
+Tunnel connections now check elevation before VPN authentication. Authentication-only runs skip the preflight. The connection code starts the tunnel once.
 
 ### 10. Expected Authentication Errors Can Produce Tracebacks
 

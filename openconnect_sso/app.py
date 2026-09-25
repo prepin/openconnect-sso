@@ -89,11 +89,19 @@ def run(args):
     cfg = config.load()
 
     # Check if we should prompt for sudo setup (before VPN auth)
-    if should_prompt_sudo_setup(cfg):
+    if not args.authenticate and should_prompt_sudo_setup(cfg):
         prompt_sudo_setup(cfg)
 
     log_level = args.log_level if args.log_level is not None else cfg.log_level
     configure_logger(logging.getLogger(), log_level)
+
+    elevation = None
+    if not args.authenticate:
+        try:
+            elevation = preflight_openconnect()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.error("Cannot run OpenConnect as administrator", error=str(exc))
+            return 20
 
     try:
         if os.name == "nt":
@@ -154,6 +162,7 @@ def run(args):
             args.ac_version,
             args.openconnect_args,
             cfg.on_connect,
+            elevation,
         )
     except KeyboardInterrupt:
         logger.warn("CTRL-C pressed, exiting")
@@ -298,8 +307,39 @@ def create_vpnc_wrapper(on_connect_command):
     return file.name
 
 
-def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
-    as_root = next(([prog] for prog in ("sudo", "doas") if shutil.which(prog)), [])
+def get_elevation_program():
+    return next((prog for prog in ("sudo", "doas") if shutil.which(prog)), None)
+
+
+def preflight_openconnect():
+    from openconnect_sso.sudo_setup import (
+        check_sudoers_configured,
+        get_openconnect_path,
+    )
+
+    program = get_elevation_program()
+    if not program:
+        raise PermissionError("Neither sudo nor doas is available")
+
+    binary = get_openconnect_path()
+    if program == "sudo" and check_sudoers_configured():
+        return program, binary
+
+    result = subprocess.run([program, binary, "--version"], stdout=subprocess.DEVNULL)
+    if result.returncode != 0:
+        raise PermissionError(
+            f"{program} cannot run OpenConnect (exit {result.returncode})"
+        )
+    return program, binary
+
+
+def run_openconnect(
+    auth_info, host, proxy, version, args, on_connect="", elevation=None
+):
+    program, binary = (
+        elevation if elevation else (get_elevation_program(), "openconnect")
+    )
+    as_root = [program] if program else []
     try:
         if not as_root:
             if os.name == "nt":
@@ -316,7 +356,7 @@ def run_openconnect(auth_info, host, proxy, version, args, on_connect=""):
         return 20
 
     command_line = [
-        "openconnect",
+        binary,
         "--useragent",
         f"AnyConnect Linux_64 {version}",
         "--version-string",
