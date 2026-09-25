@@ -38,8 +38,25 @@ jobs:
         run: uv sync --locked --python ${{ matrix.python-version }}
 
       - name: Run tests
-        run: uv run --locked pytest
+        run: uv run --locked pytest --ignore=tests/test_browser.py
 
       - name: Build distributions
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: uv build
+
+  browser:
+    name: Linux / Qt browser / Python 3.13
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v9
+        with:
+          version: '0.12.18'
+          enable-cache: true
+      - name: Install Qt display libraries
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon-x11-0 xvfb xauth
+      - run: uv sync --locked
+      - run: xvfb-run -a uv run --locked pytest tests/test_browser.py

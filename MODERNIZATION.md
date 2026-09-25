@@ -134,7 +134,7 @@ The native authentication test reached the affected gateway but did not receive 
 
 The package now uses standard project metadata and a uv lock. The build backend is still `poetry-core`.
 
-Test CI uses uv and covers the supported Python versions on Linux and macOS. The separate coding-style workflow still uses older actions.
+Test CI uses uv and covers Python 3.11 through 3.14 on Linux and macOS. The coding-style workflow also uses uv. Linux browser tests have a separate Xvfb job.
 
 The old Nix files depended on the invalid Poetry lock. They were removed with that lock.
 
@@ -238,9 +238,9 @@ Add tests for these behaviors:
 - Generate a fresh TOTP code.
 - Load the existing configuration after metadata changes.
 
-Run core tests on Linux and macOS with Python 3.11 through 3.14. Run the PyQt browser test in a separate Linux Xvfb job.
+CI runs core tests on Linux and macOS with Python 3.11 through 3.14. A separate Linux Xvfb job runs the PyQt browser tests.
 
-Build the wheel and source archive in CI. Use a frozen uv synchronization to detect lock changes.
+CI builds the wheel and source archive and checks the uv lock. A live Linux `--legacy-tls` tunnel test confirmed the interface, routes, DNS domain, and clean disconnect. Real macOS gateway verification still needs a macOS host.
 
 ### Phase 9: Correct Project Identity and Documentation
 
