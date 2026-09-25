@@ -81,6 +81,12 @@ def create_argparser():
     )
 
     parser.add_argument(
+        "--legacy-tls",
+        action="store_true",
+        help="Use legacy OpenSSL renegotiation for authentication only",
+    )
+
+    parser.add_argument(
         "--on-disconnect",
         help="Command to run when disconnecting from VPN server",
         default="",

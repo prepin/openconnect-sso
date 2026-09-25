@@ -67,6 +67,18 @@ fill = "totp"
 The browser generates the TOTP value when the field appears. It does not put
 the TOTP seed in JavaScript.
 
+### Legacy TLS Gateway
+
+If the gateway requires legacy OpenSSL renegotiation, use this option:
+
+```shell
+openconnect-sso --legacy-tls
+```
+
+The installed package includes the OpenSSL configuration. This option applies
+it only to the authentication child process. It lowers TLS security for that
+process. OpenConnect uses GnuTLS for the tunnel.
+
 ### Authentication Only
 
 Use `--authenticate` to print connection data without starting the tunnel:

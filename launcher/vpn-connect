@@ -1,3 +1,2 @@
-#!/bin/bash
-export OPENSSL_CONF=~/.config/openconnect-sso/ssl.conf
-openconnect-sso "$@"
+#!/bin/sh
+exec openconnect-sso --legacy-tls "$@"

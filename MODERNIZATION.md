@@ -120,11 +120,11 @@ The parser now uses explicit protocol errors instead of `assert`. It reports mal
 
 Other browser and network errors keep their existing exit codes.
 
-### 11. The Legacy TLS Launcher Is Incomplete
+### 11. Legacy TLS Launcher
 
-`launcher/vpn-connect` references `~/.config/openconnect-sso/ssl.conf`. The repository contains `launcher/.ssl_conf` instead.
+`launcher/vpn-connect` now invokes `openconnect-sso --legacy-tls`. The package includes the OpenSSL configuration that enables `UnsafeLegacyRenegotiation`.
 
-Nothing installs the OpenSSL configuration file. The configuration enables `UnsafeLegacyRenegotiation` for the full Python process.
+Only the authentication child receives `OPENSSL_CONF`. The parent and privileged OpenConnect tunnel do not inherit the override from the launcher.
 
 The installed OpenConnect uses GnuTLS. Therefore, `OPENSSL_CONF` does not change its TLS behavior.
 
@@ -203,9 +203,9 @@ Keep passwordless setup only for users who already have administrator access. Ap
 
 Native OpenConnect did not complete authentication on the affected gateway. The existing flow succeeded with the legacy OpenSSL configuration.
 
-Add an explicit legacy TLS option. Apply the override only to the authentication helper process.
+The `--legacy-tls` option runs authentication in a child process with the bundled OpenSSL configuration. The launcher forwards to this option.
 
-Fix the configuration filename and installation path. Add a warning that the option lowers TLS security.
+The README warns that legacy renegotiation lowers TLS security for that child process.
 
 ### Phase 6: Move Project Management to uv (Complete)
 

@@ -5,8 +5,10 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import shlex
 import shutil
@@ -108,16 +110,22 @@ def run(args):
             return 20
 
     try:
-        if os.name == "nt":
-            asyncio.set_event_loop(asyncio.ProactorEventLoop())
-            loop = asyncio.get_event_loop()
+        if getattr(args, "legacy_tls", False):
+            auth_response, selected_profile = authenticate_with_legacy_tls()
+            cfg = config.load()
         else:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        auth_response, selected_profile = loop.run_until_complete(_run(args, cfg))
+            if os.name == "nt":
+                asyncio.set_event_loop(asyncio.ProactorEventLoop())
+                loop = asyncio.get_event_loop()
+            else:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            auth_response, selected_profile = loop.run_until_complete(_run(args, cfg))
     except KeyboardInterrupt:
         logger.warn("CTRL-C pressed, exiting")
         return 130
+    except subprocess.CalledProcessError as exc:
+        return exc.returncode
     except ValueError as e:
         msg, retval = e.args
         logger.error(msg)
@@ -200,6 +208,57 @@ def configure_logger(logger, level):
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(level)
+
+
+def authenticate_with_legacy_tls():
+    options = sys.argv[1:]
+    if "--" in options:
+        options = options[: options.index("--")]
+
+    forwarded = []
+    skip_format = False
+    for option in options:
+        if skip_format:
+            skip_format = False
+            if option in ("shell", "json"):
+                continue
+        if option == "--authenticate":
+            skip_format = True
+        elif option != "--legacy-tls" and not option.startswith("--authenticate="):
+            forwarded.append(option)
+
+    env = os.environ.copy()
+    env["OPENSSL_CONF"] = str(Path(__file__).with_name("legacy-ssl.conf"))
+    command = [
+        sys.executable,
+        "-m",
+        "openconnect_sso.cli",
+        "--authenticate=json",
+        *forwarded,
+    ]
+    with subprocess.Popen(command, env=env, stdout=subprocess.PIPE) as child:
+        status = child.wait()
+        os.set_blocking(child.stdout.fileno(), False)
+        output = bytearray()
+        while True:
+            try:
+                chunk = os.read(child.stdout.fileno(), 65536)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            output.extend(chunk)
+    if status:
+        raise subprocess.CalledProcessError(status, command)
+    try:
+        details = json.loads(output)
+        profile = config.HostProfile(details["host"], "", "")
+        response = SimpleNamespace(
+            session_token=details["cookie"], server_cert_hash=details["fingerprint"]
+        )
+        return response, profile
+    except (KeyError, ValueError) as exc:
+        raise AuthResponseError("Invalid response from legacy authentication") from exc
 
 
 async def _run(args, cfg):

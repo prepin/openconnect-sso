@@ -1,4 +1,7 @@
+import json
 import logging
+import os
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -211,6 +214,108 @@ def test_authenticate_only_skips_privilege_setup_and_preflight(capsys):
     preflight.assert_not_called()
     tunnel.assert_not_called()
     assert "COOKIE=test-cookie" in capsys.readouterr().out
+
+
+def test_legacy_tls_is_limited_to_authentication_child():
+    raw_args = [
+        "openconnect-sso",
+        "--legacy-tls",
+        "--authenticate",
+        "shell",
+        "--server",
+        "vpn.example.com",
+        "--",
+        "--base-mtu=1370",
+    ]
+    output = json.dumps(
+        {
+            "host": "https://vpn.example.com/group",
+            "cookie": "test-cookie",
+            "fingerprint": "sha256:test",
+        }
+    ).encode()
+    child = MagicMock()
+    child.__enter__.return_value = child
+    child.wait.return_value = 0
+    child.stdout.fileno.return_value = 42
+    with (
+        patch.dict(os.environ, {"OPENSSL_CONF": "parent.conf"}),
+        patch("openconnect_sso.app.sys.argv", raw_args),
+        patch("openconnect_sso.app.subprocess.Popen", return_value=child) as popen,
+        patch("openconnect_sso.app.os.set_blocking"),
+        patch("openconnect_sso.app.os.read", side_effect=[output, BlockingIOError]),
+    ):
+        auth_response, profile = app.authenticate_with_legacy_tls()
+        assert os.environ["OPENSSL_CONF"] == "parent.conf"
+
+    command = popen.call_args.args[0]
+    assert command[1:] == [
+        "-m",
+        "openconnect_sso.cli",
+        "--authenticate=json",
+        "--server",
+        "vpn.example.com",
+    ]
+    assert Path(popen.call_args.kwargs["env"]["OPENSSL_CONF"]).is_file()
+    assert popen.call_args.kwargs["env"]["OPENSSL_CONF"] != "parent.conf"
+    assert popen.call_args.kwargs["stdout"] == subprocess.PIPE
+    assert auth_response.session_token == "test-cookie"
+    assert profile.vpn_url == "https://vpn.example.com/group"
+
+
+def test_legacy_authentication_child_error_is_returned():
+    args = cli.create_argparser().parse_args(["--legacy-tls", "--authenticate"])
+    with (
+        patch("openconnect_sso.app.config.load", return_value=config.Config()),
+        patch("openconnect_sso.app.configure_logger"),
+        patch(
+            "openconnect_sso.app.authenticate_with_legacy_tls",
+            side_effect=subprocess.CalledProcessError(5, ["auth-child"]),
+        ),
+        patch("openconnect_sso.app.preflight_openconnect") as preflight,
+    ):
+        assert app.run(args) == 5
+    preflight.assert_not_called()
+
+
+def test_legacy_tunnel_runs_in_parent_without_openssl_override():
+    args = cli.create_argparser().parse_args(
+        ["--legacy-tls", "--server", "vpn.example.com"]
+    )
+    saved = config.Config(on_connect="configure DNS", on_disconnect="notify user")
+    auth = SimpleNamespace(session_token="test-cookie", server_cert_hash="sha256:test")
+    profile = config.HostProfile("vpn.example.com", "", "")
+
+    with (
+        patch("openconnect_sso.app.config.load", side_effect=[config.Config(), saved]),
+        patch("openconnect_sso.app.should_prompt_sudo_setup", return_value=False),
+        patch("openconnect_sso.app.configure_logger"),
+        patch(
+            "openconnect_sso.app.preflight_openconnect",
+            return_value=("sudo", "/usr/bin/openconnect"),
+        ),
+        patch(
+            "openconnect_sso.app.authenticate_with_legacy_tls",
+            return_value=(auth, profile),
+        ),
+        patch("openconnect_sso.app.config.save"),
+        patch("openconnect_sso.app.run_openconnect", return_value=0) as tunnel,
+        patch("openconnect_sso.app.handle_disconnect") as disconnect,
+    ):
+        original_conf = os.environ.get("OPENSSL_CONF")
+        assert app.run(args) == 0
+        assert os.environ.get("OPENSSL_CONF") == original_conf
+
+    tunnel.assert_called_once_with(
+        auth,
+        profile,
+        None,
+        "4.7.00136",
+        [],
+        "configure DNS",
+        ("sudo", "/usr/bin/openconnect"),
+    )
+    disconnect.assert_called_once_with("notify user")
 
 
 def test_preflight_precedes_authentication_and_reuses_elevation():
