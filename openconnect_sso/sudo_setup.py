@@ -8,6 +8,8 @@ import platform
 from pathlib import Path
 
 logger = structlog.get_logger()
+STOP_HELPER = Path("/usr/local/libexec/prepin-vpn-stop")
+LEGACY_STOP_RULE = Path("/etc/sudoers.d/prepin-vpn-stop")
 
 
 def get_openconnect_path():
@@ -52,6 +54,44 @@ def check_sudoers_configured():
     return result.returncode == 0
 
 
+def check_stop_helper_configured():
+    """Check the root-owned Linux stop helper and its passwordless sudo rule."""
+    if get_platform() != "linux" or not STOP_HELPER.is_file():
+        return False
+    result = subprocess.run(
+        ["sudo", "-n", "-k", str(STOP_HELPER), "--self-test"],
+        capture_output=True,
+        timeout=5,
+    )
+    return result.returncode == 0
+
+
+def install_stop_helper():
+    """Copy the packaged helper to a root-owned executable outside the tool venv."""
+    source = Path(__file__).with_name("stop_helper.py").resolve(strict=True)
+    if not source.is_file():
+        raise FileNotFoundError(f"OpenConnect stop helper is missing: {source}")
+    subprocess.run(
+        ["sudo", "install", "-d", "-m", "755", str(STOP_HELPER.parent)],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "sudo",
+            "install",
+            "-o",
+            "root",
+            "-g",
+            "root",
+            "-m",
+            "755",
+            str(source),
+            str(STOP_HELPER),
+        ],
+        check=True,
+    )
+
+
 def validate_openconnect_binary(openconnect_path, system):
     """Validate the executable before granting it passwordless sudo."""
     binary = Path(openconnect_path).resolve(strict=True)
@@ -76,8 +116,15 @@ def setup_sudoers(openconnect_path):
     sudoers_content = f"{username} ALL=(ALL) NOPASSWD: {openconnect_path}\n"
 
     if system == "linux":
+        install_stop_helper()
+        sudoers_content += f"{username} ALL=(root) NOPASSWD: {STOP_HELPER} *\n"
         sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
-        return _write_sudoers_file(sudoers_file, sudoers_content)
+        if not _write_sudoers_file(sudoers_file, sudoers_content):
+            return False
+        if not check_stop_helper_configured():
+            raise RuntimeError("Passwordless OpenConnect stop helper is not active")
+        subprocess.run(["sudo", "rm", "-f", str(LEGACY_STOP_RULE)], check=True)
+        return True
     elif system == "darwin":
         sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
         if sudoers_file.parent.is_dir():
@@ -168,6 +215,25 @@ def remove_sudoers():
     """Remove passwordless sudo configuration for openconnect."""
     system = get_platform()
     sudoers_file = Path("/etc/sudoers.d/openconnect-sso")
+    if system == "linux":
+        result = subprocess.run(
+            [
+                "sudo",
+                "rm",
+                "-f",
+                str(sudoers_file),
+                str(LEGACY_STOP_RULE),
+                str(STOP_HELPER),
+            ],
+            capture_output=True,
+        )
+        if result.returncode != 0:
+            logger.error(
+                "Failed to remove sudoers and stop helper",
+                stderr=result.stderr.decode(),
+            )
+            return False
+        return True
     if not sudoers_file.exists():
         if system == "darwin" and not sudoers_file.parent.is_dir():
             logger.error(

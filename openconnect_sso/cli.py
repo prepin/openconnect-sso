@@ -172,8 +172,10 @@ def setup_sudo_configuration():
     """Interactive sudo setup."""
     from openconnect_sso.sudo_setup import (
         get_openconnect_path,
+        get_platform,
         setup_sudoers,
         check_sudoers_configured,
+        check_stop_helper_configured,
     )
 
     if not shutil.which("sudo"):
@@ -181,7 +183,7 @@ def setup_sudo_configuration():
         return 1
 
     # Check if already configured
-    if check_sudoers_configured():
+    if get_platform() != "linux" and check_sudoers_configured():
         print("✓ Passwordless sudo already configured")
         return 0
 
@@ -202,15 +204,19 @@ def setup_sudo_configuration():
     print("OpenConnect accepts --script and can run arbitrary commands as root.")
     print()
     print(f"This will configure passwordless sudo for: {openconnect_path}")
+    if get_platform() == "linux":
+        print("It also installs a root-owned, restricted OpenConnect stop helper.")
     print("Administrator password required.")
     print()
 
     # Setup sudoers
     try:
         if setup_sudoers(openconnect_path):
-            if not check_sudoers_configured():
+            if not check_sudoers_configured() or (
+                get_platform() == "linux" and not check_stop_helper_configured()
+            ):
                 print(
-                    "✗ sudoers file created, but passwordless OpenConnect is not active"
+                    "✗ sudoers file created, but passwordless OpenConnect control is not active"
                 )
                 return 1
             print("✓ Configuration successful")

@@ -118,7 +118,13 @@ installations. It rejects executables that a group or any other user can edit.
 Automatic setup on macOS requires `/etc/sudoers.d`. If this directory is
 missing, configure the rule manually with `sudo visudo`.
 
-Remove the rule with this command:
+On Linux, `--setup-sudo` also copies the bundled stop helper to the root-owned
+`/usr/local/libexec/prepin-vpn-stop`. Its sudo rule permits passwordless calls
+to that copy only. The helper checks the caller, tunnel interface, and
+OpenConnect process before sending a clean shutdown signal. Run `--setup-sudo`
+again after upgrading the tool to update the root-owned copy.
+
+Remove the rules and the Linux stop helper with this command:
 
 ```shell
 openconnect-sso --remove-sudo-setup

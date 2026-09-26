@@ -130,6 +130,34 @@ class TestCheckSudoersConfigured:
         run.assert_not_called()
 
 
+def test_stop_helper_configured(mock_linux_platform):
+    with (
+        patch("pathlib.Path.is_file", return_value=True),
+        patch("subprocess.run", return_value=MagicMock(returncode=0)) as run,
+    ):
+        assert sudo_setup.check_stop_helper_configured() is True
+    run.assert_called_once_with(
+        ["sudo", "-n", "-k", "/usr/local/libexec/prepin-vpn-stop", "--self-test"],
+        capture_output=True,
+        timeout=5,
+    )
+
+
+def test_install_stop_helper(mock_linux_platform):
+    with patch("subprocess.run", return_value=MagicMock(returncode=0)) as run:
+        sudo_setup.install_stop_helper()
+    assert run.call_args_list[0].args[0] == [
+        "sudo",
+        "install",
+        "-d",
+        "-m",
+        "755",
+        "/usr/local/libexec",
+    ]
+    assert run.call_args_list[1].args[0][-1] == "/usr/local/libexec/prepin-vpn-stop"
+    assert run.call_args_list[1].args[0][-2].endswith("openconnect_sso/stop_helper.py")
+
+
 @pytest.mark.parametrize(
     ("system", "owner", "mode", "allowed"),
     (
@@ -178,21 +206,37 @@ class TestSetupSudoers:
     @patch.dict(os.environ, {"USER": "somebody-else"})
     def test_linux_success(self, mock_openconnect_path, mock_linux_platform):
         """Test successful Linux setup."""
-        with patch(
-            "openconnect_sso.sudo_setup._write_sudoers_file", return_value=True
-        ) as write:
+        with (
+            patch("openconnect_sso.sudo_setup.install_stop_helper") as install,
+            patch(
+                "openconnect_sso.sudo_setup.check_stop_helper_configured",
+                return_value=True,
+            ),
+            patch(
+                "openconnect_sso.sudo_setup._write_sudoers_file", return_value=True
+            ) as write,
+            patch("subprocess.run", return_value=MagicMock(returncode=0)) as run,
+        ):
             result = sudo_setup.setup_sudoers(mock_openconnect_path)
             assert result is True
+        install.assert_called_once()
         write.assert_called_once_with(
             Path("/etc/sudoers.d/openconnect-sso"),
-            "testuser ALL=(ALL) NOPASSWD: /usr/bin/openconnect\n",
+            "testuser ALL=(ALL) NOPASSWD: /usr/bin/openconnect\n"
+            "testuser ALL=(root) NOPASSWD: /usr/local/libexec/prepin-vpn-stop *\n",
+        )
+        run.assert_called_once_with(
+            ["sudo", "rm", "-f", "/etc/sudoers.d/prepin-vpn-stop"], check=True
         )
 
     def test_linux_failure(self, mock_openconnect_path, mock_linux_platform):
         """Test failed Linux setup."""
-        with patch(
-            "openconnect_sso.sudo_setup._write_sudoers_file",
-            side_effect=RuntimeError("Failed"),
+        with (
+            patch("openconnect_sso.sudo_setup.install_stop_helper"),
+            patch(
+                "openconnect_sso.sudo_setup._write_sudoers_file",
+                side_effect=RuntimeError("Failed"),
+            ),
         ):
             with pytest.raises(RuntimeError, match="Failed"):
                 sudo_setup.setup_sudoers(mock_openconnect_path)
@@ -284,7 +328,7 @@ class TestRemoveSudoers:
 
     def test_linux_file_not_exists(self, mock_openconnect_path, mock_linux_platform):
         """Test when sudoers file doesn't exist on Linux."""
-        with patch("pathlib.Path.exists", return_value=False):
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)):
             result = sudo_setup.remove_sudoers()
             assert result is True
 
@@ -296,7 +340,15 @@ class TestRemoveSudoers:
         ):
             assert sudo_setup.remove_sudoers() is True
         run.assert_called_once_with(
-            ["sudo", "rm", "/etc/sudoers.d/openconnect-sso"], capture_output=True
+            [
+                "sudo",
+                "rm",
+                "-f",
+                "/etc/sudoers.d/openconnect-sso",
+                "/etc/sudoers.d/prepin-vpn-stop",
+                "/usr/local/libexec/prepin-vpn-stop",
+            ],
+            capture_output=True,
         )
 
     def test_macos_with_sudoers_d(self, mock_openconnect_path, mock_macos_platform):

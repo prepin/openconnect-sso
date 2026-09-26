@@ -539,7 +539,7 @@ def test_sudo_setup_does_not_claim_success_if_rule_is_inactive(capsys):
         patch("openconnect_sso.cli.shutil.which", return_value="/usr/bin/sudo"),
         patch(
             "openconnect_sso.sudo_setup.check_sudoers_configured",
-            side_effect=[False, False],
+            return_value=False,
         ) as check,
         patch(
             "openconnect_sso.sudo_setup.get_openconnect_path",
@@ -550,6 +550,6 @@ def test_sudo_setup_does_not_claim_success_if_rule_is_inactive(capsys):
     ):
         assert cli.setup_sudo_configuration() == 1
 
-    assert check.call_count == 2
+    check.assert_called_once()
     save.assert_not_called()
-    assert "passwordless OpenConnect is not active" in capsys.readouterr().out
+    assert "passwordless OpenConnect control is not active" in capsys.readouterr().out
